@@ -15,6 +15,11 @@ import ru.maltsev.bybitpayerbackend.receipt.util.ReceiptText;
 public class TinkoffReceiptValidator {
 
     private static final String DEFAULT_SUCCESS_STATUS = "Успешно";
+    private static final String BANK_WITHOUT_RECIPIENT_LABEL = "Т-банк";
+    private static final List<String> RECIPIENT_BANK_LABELS = List.of(
+            "Банк получателя",
+            "Банк карты получателя"
+    );
 
     private final TinkoffReceiptPdfParser parser;
 
@@ -46,7 +51,10 @@ public class TinkoffReceiptValidator {
         if (!containsPhone(rawText, expected.phone())) {
             errors.add("В чеке не найден ожидаемый телефон: " + expected.phone());
         }
-        if (!containsHumanValue(rawText, expected.bank())) {
+        if (isBankWithoutRecipientLabel(expected.bank()) && containsRecipientBankLine(rawText)) {
+            errors.add("В чеке для Т-банк не должно быть строки «Банк получателя»");
+        } else if (!isBankWithoutRecipientLabel(expected.bank())
+                && !containsHumanValue(parsedReceipt.data().bank(), expected.bank())) {
             errors.add("В чеке не найден ожидаемый банк: " + expected.bank());
         }
 
@@ -57,6 +65,19 @@ public class TinkoffReceiptValidator {
         String normalizedSource = ReceiptText.normalizeHuman(source);
         String normalizedExpected = ReceiptText.normalizeHuman(expected);
         return ReceiptText.hasText(normalizedExpected) && normalizedSource.contains(normalizedExpected);
+    }
+
+    private boolean isBankWithoutRecipientLabel(String bank) {
+        return ReceiptText.normalizeHuman(BANK_WITHOUT_RECIPIENT_LABEL)
+                .equals(ReceiptText.normalizeHuman(bank));
+    }
+
+    private boolean containsRecipientBankLine(String text) {
+        return ReceiptText.nullToEmpty(text).lines()
+                .map(ReceiptText::normalizeHuman)
+                .anyMatch(line -> RECIPIENT_BANK_LABELS.stream()
+                        .map(ReceiptText::normalizeHuman)
+                        .anyMatch(label -> line.equals(label) || line.startsWith(label + " ")));
     }
 
     private boolean containsPhone(String source, String expectedPhone) {

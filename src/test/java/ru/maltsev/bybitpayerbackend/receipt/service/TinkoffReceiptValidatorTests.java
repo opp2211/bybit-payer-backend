@@ -70,4 +70,82 @@ class TinkoffReceiptValidatorTests {
         assertThat(result.valid()).isFalse();
         assertThat(result.errors()).hasSize(5);
     }
+
+    @Test
+    void validatesTBankReceiptWithoutRecipientBankLine() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("12345.67"),
+                "Иван Петров",
+                "70000000000",
+                "Т-банк"
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Статус операции
+                Успешно
+                Сумма
+                12 345,67 ₽
+                Получатель
+                Иван Петров
+                Телефон получателя
+                +7 (000) 000-00-00
+                """, expected);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.receipt().bank()).isNull();
+    }
+
+    @Test
+    void rejectsTBankReceiptWithRecipientBankLine() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("12345.67"),
+                "Иван Петров",
+                "70000000000",
+                "Т-банк"
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Статус операции
+                Успешно
+                Сумма
+                12 345,67 ₽
+                Получатель
+                Иван Петров
+                Телефон получателя
+                +7 (000) 000-00-00
+                Банк получателя
+                Сбербанк
+                """, expected);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors())
+                .containsExactly("В чеке для Т-банк не должно быть строки «Банк получателя»");
+    }
+
+    @Test
+    void rejectsOtherBankReceiptWithoutRecipientBankLine() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("12345.67"),
+                "Иван Петров",
+                "70000000000",
+                "Сбербанк"
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Статус операции
+                Успешно
+                Сумма
+                12 345,67 ₽
+                Получатель
+                Иван Петров
+                Телефон получателя
+                +7 (000) 000-00-00
+                Комментарий
+                Перевод в Сбербанк
+                """, expected);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).containsExactly("В чеке не найден ожидаемый банк: Сбербанк");
+    }
 }
