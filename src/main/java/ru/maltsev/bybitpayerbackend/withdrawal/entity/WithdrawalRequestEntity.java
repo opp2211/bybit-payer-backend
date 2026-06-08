@@ -1,0 +1,103 @@
+package ru.maltsev.bybitpayerbackend.withdrawal.entity;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@Entity
+@Table(name = "withdrawal_requests")
+public class WithdrawalRequestEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "amount_rub", nullable = false, precision = 19, scale = 0)
+    private BigDecimal amountRub;
+
+    @Column(name = "recipient_phone", nullable = false, length = 32)
+    private String recipientPhone;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "recipient_bank", referencedColumnName = "code", nullable = false)
+    private BankEntity recipientBank;
+
+    @Column(name = "recipient_name", nullable = false)
+    private String recipientName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 48)
+    private WithdrawalStatus status;
+
+    @Column(name = "attention_required", nullable = false)
+    private boolean attentionRequired;
+
+    @Column(name = "completion_seen", nullable = false)
+    private boolean completionSeen = true;
+
+    @Column(name = "queue_group_key", length = 64)
+    private String queueGroupKey;
+
+    @Column(name = "queue_position")
+    private Integer queuePosition;
+
+    @Column(name = "bybit_order_id", length = 128)
+    private String bybitOrderId;
+
+    @Column(name = "bybit_order_amount_rub", precision = 19, scale = 2)
+    private BigDecimal bybitOrderAmountRub;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @Column(name = "queued_at")
+    private Instant queuedAt;
+
+    @Column(name = "published_at")
+    private Instant publishedAt;
+
+    @Column(name = "order_found_at")
+    private Instant orderFoundAt;
+
+    @Column(name = "requisites_sent_at")
+    private Instant requisitesSentAt;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
+
+    @Column(name = "verification_started_at")
+    private Instant verificationStartedAt;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    @Column(name = "last_error")
+    private String lastError;
+
+    @Column(name = "last_warning")
+    private String lastWarning;
+}

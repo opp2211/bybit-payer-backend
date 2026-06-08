@@ -1,0 +1,76 @@
+spring:
+  config:
+    import: optional:file:./.env[.properties]
+  application:
+    name: bybit-payer-backend
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:bybit-payer-db}
+    username: ${POSTGRES_USER:bb-payer}
+    password: ${POSTGRES_PASSWORD:postgres}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+
+bybit:
+  enabled: ${BYBIT_ENABLED:false}
+  api-key: ${BYBIT_API_KEY:}
+  api-secret: ${BYBIT_API_SECRET:}
+  env: ${BYBIT_ENV:testnet}
+  base-url: ${BYBIT_BASE_URL:}
+  recv-window-ms: ${BYBIT_RECV_WINDOW_MS:5000}
+  p2p-ad-id: ${BYBIT_P2P_AD_ID:}
+  p2p-poll-interval: ${BYBIT_P2P_POLL_INTERVAL_SECONDS:5}s
+  rate-limit-requests-per-second: ${BYBIT_RATE_LIMIT_REQUESTS_PER_SECOND:10}
+  retry-max-attempts: ${BYBIT_RETRY_MAX_ATTEMPTS:3}
+  retry-backoff-seconds: ${BYBIT_RETRY_BACKOFF_SECONDS:1,2,4}
+  default-min-rub: ${BYBIT_DEFAULT_MIN_RUB:1000}
+  default-max-rub: ${BYBIT_DEFAULT_MAX_RUB:10000}
+  rate-source-side: ${BYBIT_RATE_SOURCE_SIDE:BUY}
+  rate-source-asset: ${BYBIT_RATE_SOURCE_ASSET:USDT}
+  rate-source-fiat: ${BYBIT_RATE_SOURCE_FIAT:RUB}
+  rate-source-payment-method: ${BYBIT_RATE_SOURCE_PAYMENT_METHOD:Bank transfer}
+  rate-source-amount: ${BYBIT_RATE_SOURCE_AMOUNT:10000}
+  rate-source-ad-index: ${BYBIT_RATE_SOURCE_AD_INDEX:15}
+  order-source-side: ${BYBIT_ORDER_SOURCE_SIDE:SELL}
+  order-page-size: ${BYBIT_ORDER_PAGE_SIZE:30}
+  cancel-reason-code: ${BYBIT_CANCEL_REASON_CODE:sellerOrderCancelReason_sellerOther}
+  cancel-sub-reason-code: ${BYBIT_CANCEL_SUB_REASON_CODE:}
+  cancel-remark: ${BYBIT_CANCEL_REMARK:}
+  balance-account-type: ${BYBIT_BALANCE_ACCOUNT_TYPE:FUND}
+  balance-coin: ${BYBIT_BALANCE_COIN:USDT}
+
+business:
+  attention-timeout: ${ATTENTION_TIMEOUT_SECONDS:300}s
+  chat-message-delay: ${CHAT_MESSAGE_DELAY_MS:1000}ms
+  usdt-quantity-scale: ${USDT_QUANTITY_SCALE:4}
+  max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
+  receipt-email-to-send-in-chat: ${RECEIPT_EMAIL_TO_SEND_IN_CHAT:opp2211@gmail.com}
+
+receipt:
+  mail:
+    enabled: true
+    host: imap.gmail.com
+    port: 993
+    folder: INBOX
+    sender: noreply@tinkoff.ru
+    only-unread: true
+    mark-seen-on-valid: true
+    max-messages: 20
+    poll-interval: ${IMAPS_POLL_INTERVAL_SECONDS:5}s
+    connection-timeout: 10s
+    read-timeout: 20s
+    subject-prefix: ${RECEIPT_SUBJECT_PREFIX:Документ по операции}
+    username: ${IMAPS_USERNAME:${RECEIPT_MAIL_USERNAME:}}
+    password: ${IMAPS_PASSWORD:${RECEIPT_MAIL_PASSWORD:}}

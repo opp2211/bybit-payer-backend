@@ -1,0 +1,24 @@
+spring:
+  config:
+    import: optional:file:./.env[.properties]
+  datasource:
+    url: jdbc:h2:mem:bybitpayer;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+
+receipt:
+  mail:
+    enabled: false
+
+bybit:
+  enabled: false
+  local:
+    reference-rate: 92.31
+    available-usdt: 100000
