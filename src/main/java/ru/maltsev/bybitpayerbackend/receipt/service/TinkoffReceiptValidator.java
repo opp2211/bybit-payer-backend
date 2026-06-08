@@ -37,34 +37,35 @@ public class TinkoffReceiptValidator {
 
     TinkoffReceiptValidationResult validate(ParsedTinkoffReceipt parsedReceipt, TinkoffReceiptVerificationRequest expected) {
         List<String> errors = new ArrayList<>();
+        var receipt = parsedReceipt.data();
         String rawText = parsedReceipt.rawText();
 
-        if (!containsHumanValue(rawText, DEFAULT_SUCCESS_STATUS)) {
+        if (!matchesHumanValue(receipt.status(), DEFAULT_SUCCESS_STATUS)) {
             errors.add("В чеке не найден ожидаемый статус: " + DEFAULT_SUCCESS_STATUS);
         }
-        if (!containsAmount(parsedReceipt, expected.amount())) {
+        if (!matchesAmount(receipt.amount(), expected.amount())) {
             errors.add("В чеке не найдена ожидаемая сумма: " + expected.amount());
         }
-        if (!containsHumanValue(rawText, expected.recipient())) {
+        if (!matchesHumanValue(receipt.recipient(), expected.recipient())) {
             errors.add("В чеке не найден ожидаемый получатель: " + expected.recipient());
         }
-        if (!containsPhone(rawText, expected.phone())) {
+        if (!matchesPhone(receipt.phone(), expected.phone())) {
             errors.add("В чеке не найден ожидаемый телефон: " + expected.phone());
         }
         if (isBankWithoutRecipientLabel(expected.bank()) && containsRecipientBankLine(rawText)) {
             errors.add("В чеке для Т-банк не должно быть строки «Банк получателя»");
         } else if (!isBankWithoutRecipientLabel(expected.bank())
-                && !containsHumanValue(parsedReceipt.data().bank(), expected.bank())) {
+                && !matchesHumanValue(receipt.bank(), expected.bank())) {
             errors.add("В чеке не найден ожидаемый банк: " + expected.bank());
         }
 
-        return new TinkoffReceiptValidationResult(errors.isEmpty(), parsedReceipt.data(), List.copyOf(errors));
+        return new TinkoffReceiptValidationResult(errors.isEmpty(), receipt, List.copyOf(errors));
     }
 
-    private boolean containsHumanValue(String source, String expected) {
+    private boolean matchesHumanValue(String source, String expected) {
         String normalizedSource = ReceiptText.normalizeHuman(source);
         String normalizedExpected = ReceiptText.normalizeHuman(expected);
-        return ReceiptText.hasText(normalizedExpected) && normalizedSource.contains(normalizedExpected);
+        return ReceiptText.hasText(normalizedExpected) && normalizedSource.equals(normalizedExpected);
     }
 
     private boolean isBankWithoutRecipientLabel(String bank) {
@@ -80,26 +81,13 @@ public class TinkoffReceiptValidator {
                         .anyMatch(label -> line.equals(label) || line.startsWith(label + " ")));
     }
 
-    private boolean containsPhone(String source, String expectedPhone) {
+    boolean matchesPhone(String actualPhone, String expectedPhone) {
+        String normalizedActual = ReceiptText.normalizePhoneDigits(actualPhone);
         String normalizedExpected = ReceiptText.normalizePhoneDigits(expectedPhone);
-        if (!ReceiptText.hasText(normalizedExpected)) {
-            return false;
-        }
-
-        String normalizedSource = ReceiptText.normalizePhoneDigits(source);
-        return normalizedSource.contains(normalizedExpected);
+        return ReceiptText.hasText(normalizedExpected) && normalizedActual.equals(normalizedExpected);
     }
 
-    private boolean containsAmount(ParsedTinkoffReceipt parsedReceipt, BigDecimal expectedAmount) {
-        if (expectedAmount == null) {
-            return false;
-        }
-        BigDecimal parsedAmount = parsedReceipt.data().amount();
-        if (parsedAmount != null && parsedAmount.compareTo(expectedAmount) == 0) {
-            return true;
-        }
-
-        return ReceiptText.extractAmounts(parsedReceipt.rawText()).stream()
-                .anyMatch(actual -> actual.compareTo(expectedAmount) == 0);
+    private boolean matchesAmount(BigDecimal actualAmount, BigDecimal expectedAmount) {
+        return actualAmount != null && expectedAmount != null && actualAmount.compareTo(expectedAmount) == 0;
     }
 }

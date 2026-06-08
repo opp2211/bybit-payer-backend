@@ -1,14 +1,19 @@
 package ru.maltsev.bybitpayerbackend.receipt.service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.Set;
 
 import jakarta.mail.Address;
 import jakarta.mail.Flags;
@@ -46,6 +51,21 @@ public class TinkoffReceiptMailService {
     }
 
     public List<TinkoffMailReceiptValidationResult> findAndValidate(TinkoffReceiptVerificationRequest expected) {
+        return findAndValidate(expected, Set.of(), false);
+    }
+
+    public List<TinkoffMailReceiptValidationResult> findForWithdrawal(
+            TinkoffReceiptVerificationRequest expected,
+            Set<String> ignoredReceiptKeys
+    ) {
+        return findAndValidate(expected, ignoredReceiptKeys, true);
+    }
+
+    private List<TinkoffMailReceiptValidationResult> findAndValidate(
+            TinkoffReceiptVerificationRequest expected,
+            Set<String> ignoredReceiptKeys,
+            boolean claimMatchingReceipt
+    ) {
         ensureEnabled();
 
         try {
@@ -55,7 +75,7 @@ public class TinkoffReceiptMailService {
                 Folder folder = store.getFolder(properties.getFolder());
                 folder.open(Folder.READ_WRITE);
                 try {
-                    return validateFolderMessages(folder, expected);
+                    return validateFolderMessages(folder, expected, ignoredReceiptKeys, claimMatchingReceipt);
                 } finally {
                     folder.close(false);
                 }
@@ -65,26 +85,55 @@ public class TinkoffReceiptMailService {
         }
     }
 
-    private List<TinkoffMailReceiptValidationResult> validateFolderMessages(
+    List<TinkoffMailReceiptValidationResult> validateFolderMessages(
             Folder folder,
-            TinkoffReceiptVerificationRequest expected
+            TinkoffReceiptVerificationRequest expected,
+            Set<String> ignoredReceiptKeys,
+            boolean claimMatchingReceipt
     ) throws MessagingException, IOException {
         List<Message> messages = Arrays.stream(folder.search(searchTerm()))
                 .filter(this::isAllowedSender)
                 .filter(this::hasAllowedSubject)
                 .sorted(Comparator.comparing(this::receivedAtSafe).reversed())
-                .limit(Math.max(1, properties.getMaxMessages()))
                 .toList();
 
         List<TinkoffMailReceiptValidationResult> results = new ArrayList<>();
+        int inspectedMessages = 0;
         for (Message message : messages) {
-            List<MailAttachment> attachments = extractPdfAttachments(message);
+            MailMessageMetadata metadata = metadata(message);
+            List<MailAttachment> attachments = extractPdfAttachments(
+                    message,
+                    metadata,
+                    "",
+                    ignoredReceiptKeys
+            );
+            if (attachments.isEmpty()) {
+                continue;
+            }
+            if (inspectedMessages >= Math.max(1, properties.getMaxMessages())) {
+                break;
+            }
+            inspectedMessages++;
             for (MailAttachment attachment : attachments) {
                 TinkoffReceiptValidationResult validationResult = validator.validatePdf(attachment.content(), expected);
-                if (validationResult.valid() && properties.isMarkSeenOnValid()) {
+                boolean recipientPhoneMatches = validator.matchesPhone(
+                        validationResult.receipt().phone(),
+                        expected.phone()
+                );
+                if (claimMatchingReceipt) {
+                    message.setFlag(Flags.Flag.SEEN, recipientPhoneMatches);
+                } else if (validationResult.valid() && properties.isMarkSeenOnValid()) {
                     message.setFlag(Flags.Flag.SEEN, true);
                 }
-                results.add(toMailResult(message, attachment.fileName(), validationResult));
+                results.add(toMailResult(
+                        metadata,
+                        attachment,
+                        recipientPhoneMatches,
+                        validationResult
+                ));
+                if (claimMatchingReceipt && recipientPhoneMatches) {
+                    return List.copyOf(results);
+                }
             }
         }
 
@@ -92,36 +141,56 @@ public class TinkoffReceiptMailService {
     }
 
     private TinkoffMailReceiptValidationResult toMailResult(
-            Message message,
-            String attachmentName,
+            MailMessageMetadata metadata,
+            MailAttachment attachment,
+            boolean recipientPhoneMatches,
             TinkoffReceiptValidationResult validationResult
-    ) throws MessagingException {
+    ) {
         return new TinkoffMailReceiptValidationResult(
                 validationResult.valid(),
-                messageId(message),
-                decode(message.getSubject()),
-                from(message),
-                receivedAtSafe(message),
-                attachmentName,
+                recipientPhoneMatches,
+                attachment.receiptKey(),
+                metadata.messageId(),
+                metadata.subject(),
+                metadata.from(),
+                metadata.receivedAt(),
+                attachment.fileName(),
                 validationResult.receipt(),
                 validationResult.errors()
         );
     }
 
-    private List<MailAttachment> extractPdfAttachments(Part part) throws MessagingException, IOException {
+    private List<MailAttachment> extractPdfAttachments(
+            Part part,
+            MailMessageMetadata metadata,
+            String partPath,
+            Set<String> ignoredReceiptKeys
+    ) throws MessagingException, IOException {
         List<MailAttachment> attachments = new ArrayList<>();
         if (part.isMimeType("multipart/*")) {
             Multipart multipart = (Multipart) part.getContent();
             for (int index = 0; index < multipart.getCount(); index++) {
-                attachments.addAll(extractPdfAttachments(multipart.getBodyPart(index)));
+                String childPath = partPath.isEmpty() ? String.valueOf(index) : partPath + "." + index;
+                attachments.addAll(extractPdfAttachments(
+                        multipart.getBodyPart(index),
+                        metadata,
+                        childPath,
+                        ignoredReceiptKeys
+                ));
             }
             return attachments;
         }
 
         String fileName = decode(part.getFileName());
         if (isPdfPart(part, fileName)) {
+            String normalizedFileName = ReceiptText.hasText(fileName) ? fileName : "receipt.pdf";
+            String receiptKey = receiptKey(metadata, partPath, normalizedFileName);
+            if (ignoredReceiptKeys.contains(receiptKey)) {
+                return attachments;
+            }
             attachments.add(new MailAttachment(
-                    ReceiptText.hasText(fileName) ? fileName : "receipt.pdf",
+                    receiptKey,
+                    normalizedFileName,
                     part.getInputStream().readAllBytes()
             ));
         }
@@ -201,6 +270,31 @@ public class TinkoffReceiptMailService {
         return decode(addresses[0].toString());
     }
 
+    private MailMessageMetadata metadata(Message message) throws MessagingException {
+        return new MailMessageMetadata(
+                messageId(message),
+                decode(message.getSubject()),
+                from(message),
+                receivedAtSafe(message)
+        );
+    }
+
+    private String receiptKey(MailMessageMetadata metadata, String partPath, String fileName) {
+        String source = ReceiptText.nullToEmpty(metadata.messageId())
+                + "|" + ReceiptText.nullToEmpty(metadata.from())
+                + "|" + ReceiptText.nullToEmpty(metadata.subject())
+                + "|" + metadata.receivedAt()
+                + "|" + partPath
+                + "|" + fileName;
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(source.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
+    }
+
     private String decode(String value) {
         if (!ReceiptText.hasText(value)) {
             return value;
@@ -212,7 +306,7 @@ public class TinkoffReceiptMailService {
         }
     }
 
-    private Properties mailSessionProperties() {
+    Properties mailSessionProperties() {
         Properties sessionProperties = new Properties();
         sessionProperties.put("mail.store.protocol", "imaps");
         sessionProperties.put("mail.imaps.ssl.enable", "true");
@@ -221,6 +315,7 @@ public class TinkoffReceiptMailService {
         sessionProperties.put("mail.imaps.connectiontimeout", String.valueOf(properties.getConnectionTimeout().toMillis()));
         sessionProperties.put("mail.imaps.timeout", String.valueOf(properties.getReadTimeout().toMillis()));
         sessionProperties.put("mail.imaps.writetimeout", String.valueOf(properties.getReadTimeout().toMillis()));
+        sessionProperties.put("mail.imaps.peek", "true");
         return sessionProperties;
     }
 
@@ -230,6 +325,14 @@ public class TinkoffReceiptMailService {
         }
     }
 
-    private record MailAttachment(String fileName, byte[] content) {
+    private record MailMessageMetadata(
+            String messageId,
+            String subject,
+            String from,
+            Instant receivedAt
+    ) {
+    }
+
+    private record MailAttachment(String receiptKey, String fileName, byte[] content) {
     }
 }

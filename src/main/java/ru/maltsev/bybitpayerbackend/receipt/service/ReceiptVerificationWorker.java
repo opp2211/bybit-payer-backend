@@ -17,8 +17,10 @@ import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffMailReceiptValidationResu
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptData;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptVerificationRequest;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
+import ru.maltsev.bybitpayerbackend.receipt.entity.IgnoredEmailReceiptEntity;
 import ru.maltsev.bybitpayerbackend.receipt.model.ReceiptVerificationStatus;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
+import ru.maltsev.bybitpayerbackend.receipt.repository.IgnoredEmailReceiptRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
@@ -31,6 +33,7 @@ public class ReceiptVerificationWorker {
     private final ReceiptMailProperties mailProperties;
     private final TinkoffReceiptMailService mailService;
     private final EmailReceiptCheckRepository receiptCheckRepository;
+    private final IgnoredEmailReceiptRepository ignoredReceiptRepository;
     private final WithdrawalRequestRepository withdrawalRepository;
     private final BybitOrderBindingRepository bindingRepository;
     private final BybitGateway bybitGateway;
@@ -41,6 +44,7 @@ public class ReceiptVerificationWorker {
             ReceiptMailProperties mailProperties,
             TinkoffReceiptMailService mailService,
             EmailReceiptCheckRepository receiptCheckRepository,
+            IgnoredEmailReceiptRepository ignoredReceiptRepository,
             WithdrawalRequestRepository withdrawalRepository,
             BybitOrderBindingRepository bindingRepository,
             BybitGateway bybitGateway,
@@ -50,6 +54,7 @@ public class ReceiptVerificationWorker {
         this.mailProperties = mailProperties;
         this.mailService = mailService;
         this.receiptCheckRepository = receiptCheckRepository;
+        this.ignoredReceiptRepository = ignoredReceiptRepository;
         this.withdrawalRepository = withdrawalRepository;
         this.bindingRepository = bindingRepository;
         this.bybitGateway = bybitGateway;
@@ -72,6 +77,16 @@ public class ReceiptVerificationWorker {
     }
 
     private void verifyWithdrawal(WithdrawalRequestEntity withdrawal) {
+        var verifiedCheck = receiptCheckRepository
+                .findFirstByWithdrawalRequest_IdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+                        withdrawal.getId(),
+                        ReceiptVerificationStatus.VERIFIED
+                );
+        if (verifiedCheck.isPresent()) {
+            releaseWithdrawal(withdrawal, verifiedCheck.get());
+            return;
+        }
+
         TinkoffReceiptVerificationRequest request = new TinkoffReceiptVerificationRequest(
                 withdrawal.getAmountRub(),
                 withdrawal.getRecipientName(),
@@ -79,15 +94,46 @@ public class ReceiptVerificationWorker {
                 withdrawal.getRecipientBank().getTitle()
         );
 
-        List<TinkoffMailReceiptValidationResult> results = mailService.findAndValidate(request);
+        var ignoredReceiptKeys = ignoredReceiptRepository
+                .findReceiptKeysByWithdrawalRequestId(withdrawal.getId());
+        List<TinkoffMailReceiptValidationResult> results = mailService.findForWithdrawal(
+                request,
+                ignoredReceiptKeys
+        );
         for (TinkoffMailReceiptValidationResult result : results) {
+            if (!result.recipientPhoneMatches()) {
+                rememberIgnoredReceipt(withdrawal, result);
+                continue;
+            }
+
             EmailReceiptCheckEntity check = saveCheck(withdrawal, result);
             if (result.valid()) {
                 releaseWithdrawal(withdrawal, check);
                 return;
             }
             markVerificationFailed(withdrawal, String.join("; ", result.errors()));
+            return;
         }
+    }
+
+    private void rememberIgnoredReceipt(
+            WithdrawalRequestEntity withdrawal,
+            TinkoffMailReceiptValidationResult result
+    ) {
+        if (ignoredReceiptRepository.existsByWithdrawalRequest_IdAndReceiptKey(
+                withdrawal.getId(),
+                result.receiptKey()
+        )) {
+            return;
+        }
+
+        IgnoredEmailReceiptEntity ignored = new IgnoredEmailReceiptEntity();
+        ignored.setWithdrawalRequest(withdrawal);
+        ignored.setReceiptKey(result.receiptKey());
+        ignored.setEmailMessageId(result.messageId());
+        ignored.setPdfFilename(result.attachmentName());
+        ignored.setCreatedAt(Instant.now(clock));
+        ignoredReceiptRepository.save(ignored);
     }
 
     private EmailReceiptCheckEntity saveCheck(WithdrawalRequestEntity withdrawal, TinkoffMailReceiptValidationResult result) {
@@ -126,6 +172,7 @@ public class ReceiptVerificationWorker {
             withdrawal.setCompletionSeen(false);
             withdrawal.setAttentionRequired(false);
             withdrawal.setLastError(null);
+            withdrawal.setLastWarning(null);
             withdrawalRepository.save(withdrawal);
 
             bindingRepository.findByWithdrawalRequest_IdAndStatus(withdrawal.getId(), OrderBindingStatus.ACTIVE)
@@ -145,8 +192,9 @@ public class ReceiptVerificationWorker {
     }
 
     private void markVerificationFailed(WithdrawalRequestEntity withdrawal, String reason) {
+        withdrawal.setStatus(WithdrawalStatus.ERROR);
         withdrawal.setAttentionRequired(true);
-        withdrawal.setLastWarning(reason);
+        withdrawal.setLastWarning("Найден чек с номером телефона заявки, но данные не совпали: " + reason);
         withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.VERIFICATION_FAILED, "Receipt verification failed: " + reason);
     }

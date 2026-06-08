@@ -5,6 +5,8 @@ import java.util.List;
 
 public record TinkoffMailReceiptValidationResult(
         boolean valid,
+        boolean recipientPhoneMatches,
+        String receiptKey,
         String messageId,
         String subject,
         String from,

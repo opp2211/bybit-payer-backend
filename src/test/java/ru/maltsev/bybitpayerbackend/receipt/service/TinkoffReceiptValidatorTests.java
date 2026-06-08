@@ -148,4 +148,37 @@ class TinkoffReceiptValidatorTests {
         assertThat(result.valid()).isFalse();
         assertThat(result.errors()).containsExactly("В чеке не найден ожидаемый банк: Сбербанк");
     }
+
+    @Test
+    void rejectsExpectedValuesFoundOutsideParsedReceiptFields() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("9900"),
+                "Петр Иванов",
+                "+7 (900) 111-22-33",
+                "Альфа-Банк"
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Статус операции
+                Отклонено
+                Сумма
+                9 000 ₽
+                Получатель
+                Иван Петров
+                Телефон получателя
+                +7 (000) 000-00-00
+                Банк получателя
+                Альфа-Банк
+                Комментарий
+                Успешно; Петр Иванов; +7 (900) 111-22-33; комиссия 9 900 ₽
+                """, expected);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errors()).containsExactly(
+                "В чеке не найден ожидаемый статус: Успешно",
+                "В чеке не найдена ожидаемая сумма: 9900",
+                "В чеке не найден ожидаемый получатель: Петр Иванов",
+                "В чеке не найден ожидаемый телефон: +7 (900) 111-22-33"
+        );
+    }
 }

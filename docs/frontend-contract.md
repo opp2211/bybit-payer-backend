@@ -78,6 +78,18 @@ Response `201 Created`: `Withdrawal`.
 
 Response: `Withdrawal[]` со статусами `NEW`, `QUEUED`, `IN_WORK`, `PAYMENT_IN_PROGRESS`, `PAYMENT_VERIFICATION`, `ERROR`.
 
+`ERROR` после этапа проверки оплаты означает, что найден и привязан чек с номером
+телефона заявки, но остальные данные чека не прошли проверку. В этом случае:
+
+- `attentionRequired === true`;
+- `lastWarning` содержит список несовпавших полей;
+- `GET /api/withdrawals/{id}` содержит привязанный чек с
+  `verificationStatus: "FAILED"` и подробностью в `verificationError`;
+- автоматический поиск новых чеков для этой заявки прекращается.
+
+Чеки с другим номером телефона к заявке не привязываются и не создают
+`EmailReceiptCheck`.
+
 ### `GET /api/withdrawals/completed`
 
 Response: `Withdrawal[]` со статусом `COMPLETED`, новые завершения имеют `completionSeen: false`.
