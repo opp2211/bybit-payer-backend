@@ -30,7 +30,7 @@ public class BankService {
     @Transactional(readOnly = true)
     public BankEntity getEnabledByExternalValue(String value) {
         return bankRepository.findByEnabledTrueOrderBySortOrderAscTitleAsc().stream()
-                .filter(bank -> bank.getTitle().equals(value))
+                .filter(bank -> bank.getCode().equals(value))
                 .findFirst()
                 .orElseThrow(() -> BusinessException.badRequest("Unsupported recipient bank: " + value));
     }
