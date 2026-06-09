@@ -58,6 +58,10 @@ business:
   max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
   receipt-email-to-send-in-chat: ${RECEIPT_EMAIL_TO_SEND_IN_CHAT:opp2211@gmail.com}
 
+system:
+  status-refresh-interval: ${SYSTEM_STATUS_REFRESH_INTERVAL_SECONDS:30}s
+  status-initial-delay: ${SYSTEM_STATUS_INITIAL_DELAY_SECONDS:0}s
+
 receipt:
   mail:
     enabled: true

@@ -16,6 +16,7 @@ public record SystemStatusResponse(
         String currentDescription,
         BigDecimal availableUsdtBalance,
         String lastSystemError,
+        Instant bybitLastCheckedAt,
         Instant lastUpdatedAt
 ) {
 }

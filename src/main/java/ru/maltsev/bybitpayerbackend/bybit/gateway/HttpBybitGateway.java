@@ -77,19 +77,25 @@ public class HttpBybitGateway implements BybitGateway {
     public BybitReadiness checkReadiness() {
         if (!isConfigured()) {
             log.warn("Bybit readiness check failed: configuration is incomplete");
-            return new BybitReadiness(false, "CONFIG_MISSING", "Bybit API key, secret or managed ad id is not configured");
+            return new BybitReadiness(
+                    false,
+                    "CONFIG_MISSING",
+                    "Bybit API key, secret or managed ad id is not configured",
+                    null
+            );
         }
         log.info("Bybit readiness check started: env={}, baseUrl={}", properties.getEnv(), baseUrl());
+        BigDecimal availableUsdt = null;
         try {
-            fetchAvailableUsdtBalance();
+            availableUsdt = fetchAvailableUsdtBalance();
             if (StringUtils.hasText(properties.getP2pAdId())) {
                 getManagedAdDetails(properties.getP2pAdId());
             }
             log.info("Bybit readiness check completed successfully");
-            return new BybitReadiness(true, "HTTP", "Bybit HTTP gateway is available");
+            return new BybitReadiness(true, "HTTP", "Bybit HTTP gateway is available", availableUsdt);
         } catch (Exception exception) {
             log.error("Bybit readiness check failed: message={}", exception.getMessage(), exception);
-            return new BybitReadiness(false, "HTTP", exception.getMessage());
+            return new BybitReadiness(false, "HTTP", exception.getMessage(), availableUsdt);
         }
     }
 

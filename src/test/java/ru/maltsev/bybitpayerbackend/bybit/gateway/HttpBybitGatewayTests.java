@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -96,6 +97,50 @@ class HttpBybitGatewayTests {
         assertThatThrownBy(() -> gateway.requestCancel("123456789"))
                 .isInstanceOf(BybitApiException.class)
                 .hasMessageContaining("BYBIT_WEB_SESSION_COOKIE");
+    }
+
+    @Test
+    void returnsBalanceFetchedDuringReadinessCheck() throws Exception {
+        AtomicInteger balanceRequests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v5/market/time", exchange -> respond(exchange, """
+                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
+                """));
+        server.createContext("/v5/asset/transfer/query-account-coins-balance", exchange -> {
+            balanceRequests.incrementAndGet();
+            respond(exchange, """
+                    {
+                      "retCode": 0,
+                      "retMsg": "OK",
+                      "result": {
+                        "balance": [
+                          {"coin": "USDT", "transferBalance": "123.45"}
+                        ]
+                      }
+                    }
+                    """);
+        });
+        server.createContext(AD_INFO_PATH, exchange -> respond(exchange, """
+                {"retCode":0,"retMsg":"OK","result":{"id":"ad-123"}}
+                """));
+        server.start();
+
+        try {
+            BybitProperties properties = properties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setApiKey("test-api-key");
+            properties.setApiSecret("test-api-secret");
+            properties.setP2pAdId("ad-123");
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+
+            BybitReadiness readiness = gateway.checkReadiness();
+
+            assertThat(readiness.available()).isTrue();
+            assertThat(readiness.availableUsdtBalance()).isEqualByComparingTo("123.45");
+            assertThat(balanceRequests).hasValue(1);
+        } finally {
+            server.stop(0);
+        }
     }
 
     private JsonNode captureAdUpdatePayload(int adStatus) throws Exception {

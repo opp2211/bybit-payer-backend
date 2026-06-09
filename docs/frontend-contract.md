@@ -222,6 +222,8 @@ type ForeignBybitOrder = {
 
 ### `GET /api/system/status`
 
+Возвращает локальный снимок состояния. Проверка Bybit выполняется в фоне и не зависит от частоты polling фронта.
+
 Response:
 
 ```ts
@@ -238,6 +240,7 @@ type SystemStatus = {
   currentDescription: string | null;
   availableUsdtBalance: number | null;
   lastSystemError: string | null;
+  bybitLastCheckedAt: string | null;
   lastUpdatedAt: string | null;
 };
 ```
