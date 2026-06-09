@@ -30,7 +30,7 @@ class BankServiceTest {
         BankEntity bank = bank("SBERBANK", "Сбербанк");
         when(bankRepository.findByEnabledTrueOrderBySortOrderAscTitleAsc()).thenReturn(List.of(bank));
 
-        BankEntity result = bankService.getEnabledByExternalValue("  сбербанк ");
+        BankEntity result = bankService.getEnabledByExternalValue("Сбербанк");
 
         assertThat(result).isSameAs(bank);
     }

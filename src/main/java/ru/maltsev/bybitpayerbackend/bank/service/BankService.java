@@ -29,24 +29,9 @@ public class BankService {
 
     @Transactional(readOnly = true)
     public BankEntity getEnabledByExternalValue(String value) {
-        String normalized = normalize(value);
         return bankRepository.findByEnabledTrueOrderBySortOrderAscTitleAsc().stream()
-                .filter(bank -> normalize(bank.getCode()).equals(normalized)
-                        || normalize(bank.getTitle()).equals(normalized))
+                .filter(bank -> bank.getTitle().equals(value))
                 .findFirst()
                 .orElseThrow(() -> BusinessException.badRequest("Unsupported recipient bank: " + value));
-    }
-
-    private String normalize(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.trim()
-                .replace('\u0401', '\u0415')
-                .replace('\u0451', '\u0435')
-                .replace('\u2011', '-')
-                .replace('\u2013', '-')
-                .replace('\u2014', '-')
-                .toUpperCase(Locale.ROOT);
     }
 }
