@@ -114,13 +114,8 @@ public class WithdrawalMapper {
                 entity.getAmountRub(),
                 entity.getBybitStatus(),
                 entity.getReason(),
-                entity.isCancelRequested(),
-                entity.getCancelRequestAttempts(),
-                entity.getCancelRequestedAt(),
-                entity.isAttentionRequired(),
                 entity.getCreatedAt(),
-                entity.getUpdatedAt(),
-                entity.getLastError()
+                entity.getUpdatedAt()
         );
     }
 }

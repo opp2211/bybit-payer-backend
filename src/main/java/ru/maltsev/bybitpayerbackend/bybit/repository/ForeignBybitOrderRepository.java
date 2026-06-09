@@ -12,6 +12,4 @@ public interface ForeignBybitOrderRepository extends JpaRepository<ForeignBybitO
     Optional<ForeignBybitOrderEntity> findByBybitOrderId(String bybitOrderId);
 
     List<ForeignBybitOrderEntity> findAllByOrderByUpdatedAtDescIdDesc();
-
-    List<ForeignBybitOrderEntity> findByAttentionRequiredTrueOrderByUpdatedAtDescIdDesc();
 }

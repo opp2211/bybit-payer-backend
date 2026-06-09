@@ -36,24 +36,9 @@ public class ForeignBybitOrderEntity {
     @Column(name = "reason", nullable = false)
     private String reason;
 
-    @Column(name = "cancel_requested", nullable = false)
-    private boolean cancelRequested;
-
-    @Column(name = "cancel_request_attempts", nullable = false)
-    private int cancelRequestAttempts;
-
-    @Column(name = "cancel_requested_at")
-    private Instant cancelRequestedAt;
-
-    @Column(name = "attention_required", nullable = false)
-    private boolean attentionRequired = true;
-
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
-
-    @Column(name = "last_error")
-    private String lastError;
 }

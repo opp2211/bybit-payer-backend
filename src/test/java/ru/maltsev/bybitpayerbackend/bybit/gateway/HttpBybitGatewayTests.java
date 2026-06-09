@@ -1,7 +1,6 @@
 package ru.maltsev.bybitpayerbackend.bybit.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.net.InetSocketAddress;
@@ -19,7 +18,6 @@ import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 
 class HttpBybitGatewayTests {
 
-    private static final String SELLER_CANCEL_PATH = "/fiat/otc/order/seller/proposal/cancelOrder";
     private static final String AD_INFO_PATH = "/v5/p2p/item/info";
     private static final String AD_UPDATE_PATH = "/v5/p2p/item/update";
 
@@ -44,59 +42,6 @@ class HttpBybitGatewayTests {
         JsonNode payload = captureAdUpdatePayload(20);
 
         assertThat(payload.path("actionType").asText()).isEqualTo("ACTIVE");
-    }
-
-    @Test
-    void submitsSellerCancelThroughWebSessionEndpoint() throws Exception {
-        AtomicReference<String> requestBody = new AtomicReference<>();
-        AtomicReference<String> cookieHeader = new AtomicReference<>();
-        AtomicReference<String> guidHeader = new AtomicReference<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext(SELLER_CANCEL_PATH, exchange -> {
-            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            cookieHeader.set(exchange.getRequestHeaders().getFirst("Cookie"));
-            guidHeader.set(exchange.getRequestHeaders().getFirst("guid"));
-            byte[] response = """
-                    {"ret_code":0,"ret_msg":"SUCCESS","result":{}}
-                    """.getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, response.length);
-            exchange.getResponseBody().write(response);
-            exchange.close();
-        });
-        server.start();
-
-        try {
-            BybitProperties properties = properties();
-            properties.setWebBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
-            properties.setWebSessionCookie("session=test-cookie");
-            properties.setWebGuid("test-guid");
-            properties.setCancelReasonCode("sellerOrderCancelReason_sellerOther");
-            properties.setCancelRemark("Receipt details do not match");
-
-            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
-            gateway.requestCancel("123456789");
-
-            JsonNode payload = objectMapper.readTree(requestBody.get());
-            assertThat(payload.path("orderId").asText()).isEqualTo("123456789");
-            assertThat(payload.path("cancelReasonCode").asText())
-                    .isEqualTo("sellerOrderCancelReason_sellerOther");
-            assertThat(payload.path("subCancelReasonCode").isNull()).isTrue();
-            assertThat(payload.path("cancelRemark").asText())
-                    .isEqualTo("Receipt details do not match");
-            assertThat(cookieHeader.get()).isEqualTo("session=test-cookie");
-            assertThat(guidHeader.get()).isEqualTo("test-guid");
-        } finally {
-            server.stop(0);
-        }
-    }
-
-    @Test
-    void rejectsSellerCancelWithoutWebSessionCookie() {
-        HttpBybitGateway gateway = new HttpBybitGateway(properties(), Clock.systemUTC());
-
-        assertThatThrownBy(() -> gateway.requestCancel("123456789"))
-                .isInstanceOf(BybitApiException.class)
-                .hasMessageContaining("BYBIT_WEB_SESSION_COOKIE");
     }
 
     @Test

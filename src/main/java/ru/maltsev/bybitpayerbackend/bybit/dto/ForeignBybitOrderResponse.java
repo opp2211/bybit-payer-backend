@@ -9,12 +9,7 @@ public record ForeignBybitOrderResponse(
         BigDecimal amountRub,
         String bybitStatus,
         String reason,
-        boolean cancelRequested,
-        int cancelRequestAttempts,
-        Instant cancelRequestedAt,
-        boolean attentionRequired,
         Instant createdAt,
-        Instant updatedAt,
-        String lastError
+        Instant updatedAt
 ) {
 }

@@ -47,9 +47,6 @@ bybit:
   ad-rate-refresh-interval: ${BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES:5}m
   order-source-side: ${BYBIT_ORDER_SOURCE_SIDE:SELL}
   order-page-size: ${BYBIT_ORDER_PAGE_SIZE:30}
-  cancel-reason-code: ${BYBIT_CANCEL_REASON_CODE:sellerOrderCancelReason_sellerOther}
-  cancel-sub-reason-code: ${BYBIT_CANCEL_SUB_REASON_CODE:}
-  cancel-remark: ${BYBIT_CANCEL_REMARK:}
   balance-account-type: ${BYBIT_BALANCE_ACCOUNT_TYPE:FUND}
   balance-coin: ${BYBIT_BALANCE_COIN:USDT}
 

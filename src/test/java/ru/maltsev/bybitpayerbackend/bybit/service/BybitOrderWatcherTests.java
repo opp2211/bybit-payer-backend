@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
@@ -70,6 +71,43 @@ class BybitOrderWatcherTests {
         assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_IN_PROGRESS);
         assertThat(withdrawal.getBybitOrderId()).isEqualTo("order-1");
         verify(advertisementManager).rebuildPublication();
+    }
+
+    @Test
+    void keepsTrackedForeignOrderOutOfWithdrawalBinding() {
+        BybitGateway gateway = mock(BybitGateway.class);
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        BybitOrderBindingRepository bindingRepository = mock(BybitOrderBindingRepository.class);
+        ForeignBybitOrderService foreignOrderService = mock(ForeignBybitOrderService.class);
+        AdvertisementManager advertisementManager = mock(AdvertisementManager.class);
+        BybitChatService chatService = mock(BybitChatService.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitP2pOrder activeOrder = order("10");
+
+        when(gateway.fetchActiveOrders()).thenReturn(List.of(activeOrder));
+        when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
+        when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
+        when(foreignOrderService.refreshIfTracked(activeOrder)).thenReturn(true);
+
+        BybitOrderWatcher watcher = new BybitOrderWatcher(
+                gateway,
+                withdrawalRepository,
+                bindingRepository,
+                foreignOrderService,
+                advertisementManager,
+                chatService,
+                eventService,
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+
+        watcher.pollActiveOrders();
+
+        verify(withdrawalRepository, never()).findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.IN_WORK,
+                new BigDecimal("10000")
+        );
+        verify(foreignOrderService).removeMissingOrders(Set.of("order-1"));
+        verify(advertisementManager, never()).rebuildPublication();
     }
 
     @Test

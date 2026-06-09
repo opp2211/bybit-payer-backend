@@ -69,7 +69,7 @@ public class BybitOrderWatcher {
             publicationChanged = processOrder(order) || publicationChanged;
         }
         publicationChanged = syncMissingBoundOrders(activeOrderIds) || publicationChanged;
-        foreignOrderService.syncMissingOrders(activeOrderIds);
+        foreignOrderService.removeMissingOrders(activeOrderIds);
         if (publicationChanged) {
             advertisementManager.rebuildPublication();
         }
@@ -110,6 +110,10 @@ public class BybitOrderWatcher {
     }
 
     private boolean bindOrMarkForeign(BybitP2pOrder order) {
+        if (foreignOrderService.refreshIfTracked(order)) {
+            return false;
+        }
+
         List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
                 .findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK, order.amountRub());
         if (matchingWithdrawals.size() != 1) {

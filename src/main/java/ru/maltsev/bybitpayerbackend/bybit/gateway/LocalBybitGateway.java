@@ -67,10 +67,6 @@ public class LocalBybitGateway implements BybitGateway {
     }
 
     @Override
-    public void requestCancel(String bybitOrderId) {
-    }
-
-    @Override
     public void releaseOrder(String bybitOrderId) {
     }
 }

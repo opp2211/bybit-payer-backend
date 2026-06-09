@@ -13,15 +13,9 @@ BYBIT_API_KEY=
 BYBIT_API_SECRET=
 BYBIT_ENV=testnet
 BYBIT_BASE_URL=
-BYBIT_WEB_BASE_URL=https://api2.bybit.com
-BYBIT_WEB_SESSION_COOKIE=
-BYBIT_WEB_GUID=
 BYBIT_P2P_AD_ID=
 BYBIT_RECV_WINDOW_MS=5000
 BYBIT_ORDER_SOURCE_SIDE=SELL
-BYBIT_CANCEL_REASON_CODE=sellerOrderCancelReason_sellerOther
-BYBIT_CANCEL_SUB_REASON_CODE=
-BYBIT_CANCEL_REMARK=
 BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
 ```
@@ -43,8 +37,6 @@ BYBIT_BALANCE_COIN=USDT
 - `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
 - `POST /v5/p2p/order/message/send` — send requisites to order chat.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
-
-- `POST https://api2.bybit.com/fiat/otc/order/seller/proposal/cancelOrder` - experimental seller-side cancel request submit. This is a web-session endpoint, not a signed public v5 endpoint.
 
 ## Notes
 
@@ -82,49 +74,4 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
 
-The checked Bybit P2P docs and the official `bybit_p2p` SDK do not expose a public signed v5 endpoint for submitting a seller-side order cancellation request after the buyer marks a foreign order as paid.
-
-The Bybit web bundle exposes an internal endpoint:
-
-```http
-POST https://api2.bybit.com/fiat/otc/order/seller/proposal/cancelOrder
-```
-
-Payload used by the web UI:
-
-```json
-{
-  "orderId": "...",
-  "subCancelReasonCode": null,
-  "cancelReasonCode": "sellerOrderCancelReason_sellerOther",
-  "cancelRemark": ""
-}
-```
-
-The related reason list endpoint is:
-
-```http
-POST https://api2.bybit.com/fiat/otc/order/config/cancelReasonList
-```
-
-with:
-
-```json
-{
-  "orderStatus": "30",
-  "cancelType": "SELLER_CANCEL"
-}
-```
-
-Known seller reason codes from that response:
-
-- `sellerOrderCancelReason_sellerDonotWantTrade`
-- `sellerOrderCancelReason_sellerWantChangePrice`
-- `sellerOrderCancelReason_sellerAccountIssues`
-- `sellerOrderCancelReason_buyerDidnotPay`
-- `sellerOrderCancelReason_buyerDidnotFullPay`
-- `sellerOrderCancelReason_buyerPayedViolatePolicy`
-- `sellerOrderCancelReason_buyerPaymentAccount`
-- `sellerOrderCancelReason_sellerOther`
-
-`/v5/p2p/order/seller/proposal/cancelOrder` was checked and returned 404. The internal `/fiat/otc/...` endpoint returned `10007 User authentication failed` without browser cookies and ignored fake `X-BAPI-*` headers, so `requestCancel` requires `BYBIT_WEB_SESSION_COOKIE`. Without that cookie it throws an explicit `BybitApiException` instead of guessing.
+Foreign orders are observation-only. They are shown while present in the active Bybit order list and removed locally after they disappear from that list. The application does not submit cancellation requests for them.

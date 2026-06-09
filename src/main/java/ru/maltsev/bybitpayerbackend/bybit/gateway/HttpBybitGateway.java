@@ -38,7 +38,6 @@ import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 public class HttpBybitGateway implements BybitGateway {
 
     private static final String HMAC_SHA256 = "HmacSHA256";
-    private static final String SELLER_CANCEL_ENDPOINT = "/fiat/otc/order/seller/proposal/cancelOrder";
     private static final int AD_STATUS_ONLINE = 10;
     private static final int ORDER_STATUS_WAITING_BUYER_PAY = 10;
     private static final int ORDER_STATUS_WAITING_SELLER_RELEASE = 20;
@@ -235,31 +234,6 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     @Override
-    public void requestCancel(String bybitOrderId) {
-        if (!StringUtils.hasText(bybitOrderId)) {
-            throw new BybitApiException("Bybit order id is required for seller cancel request");
-        }
-        if (!StringUtils.hasText(properties.getCancelReasonCode())) {
-            throw new BybitApiException("Bybit seller cancel reason code is not configured");
-        }
-        if (!StringUtils.hasText(properties.getWebSessionCookie())) {
-            throw new BybitApiException("Bybit seller cancel submit endpoint was found only in the web api2 client. "
-                    + "Configure BYBIT_WEB_SESSION_COOKIE to enable experimental /fiat/otc seller cancel requests.");
-        }
-
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("orderId", bybitOrderId);
-        if (StringUtils.hasText(properties.getCancelSubReasonCode())) {
-            request.put("subCancelReasonCode", properties.getCancelSubReasonCode());
-        } else {
-            request.put("subCancelReasonCode", null);
-        }
-        request.put("cancelReasonCode", properties.getCancelReasonCode());
-        request.put("cancelRemark", properties.getCancelRemark() == null ? "" : properties.getCancelRemark());
-        postWebSession(SELLER_CANCEL_ENDPOINT, request);
-    }
-
-    @Override
     public void releaseOrder(String bybitOrderId) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("orderId", bybitOrderId);
@@ -287,14 +261,6 @@ public class HttpBybitGateway implements BybitGateway {
         }
     }
 
-    private JsonNode postWebSession(String path, Map<String, Object> requestBody) {
-        try {
-            return sendWebSessionWithRetry(path, objectMapper.writeValueAsString(requestBody));
-        } catch (JsonProcessingException exception) {
-            throw new BybitApiException("Failed to serialize Bybit web request body", exception);
-        }
-    }
-
     private JsonNode sendWithRetry(String method, String path, String queryString, String bodyJson) {
         int attempts = Math.max(1, properties.getRetryMaxAttempts());
         RuntimeException lastException = null;
@@ -319,31 +285,6 @@ public class HttpBybitGateway implements BybitGateway {
             }
         }
         throw lastException == null ? new BybitApiException("Bybit request failed") : lastException;
-    }
-
-    private JsonNode sendWebSessionWithRetry(String path, String bodyJson) {
-        int attempts = Math.max(1, properties.getRetryMaxAttempts());
-        RuntimeException lastException = null;
-        for (int attempt = 1; attempt <= attempts; attempt++) {
-            try {
-                return sendWebSession(path, bodyJson);
-            } catch (RuntimeException exception) {
-                lastException = exception;
-                boolean retryable = isRetryable(exception);
-                if (attempt == attempts || !retryable) {
-                    break;
-                }
-                log.warn(
-                        "Bybit web API request failed, retrying: path={}, attempt={}, maxAttempts={}, message={}",
-                        path,
-                        attempt,
-                        attempts,
-                        exception.getMessage()
-                );
-                sleepBeforeRetry(attempt);
-            }
-        }
-        throw lastException == null ? new BybitApiException("Bybit web request failed") : lastException;
     }
 
     private JsonNode send(String method, String path, String queryString, String bodyJson) {
@@ -393,47 +334,6 @@ public class HttpBybitGateway implements BybitGateway {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new BybitApiException("Bybit request interrupted for " + path, exception);
-        }
-    }
-
-    private JsonNode sendWebSession(String path, String bodyJson) {
-        throttle();
-        URI uri = URI.create(webBaseUrl() + path);
-
-        HttpRequest request = HttpRequest.newBuilder(uri)
-                .timeout(Duration.ofSeconds(30))
-                .header("Accept", "application/json")
-                .header("Content-Type", "application/json")
-                .header("platform", "PC")
-                .header("guid", webGuid())
-                .header("Origin", "https://www.bybit.com")
-                .header("Referer", "https://www.bybit.com/p2p/")
-                .header("Cookie", properties.getWebSessionCookie())
-                .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
-                .build();
-
-        long startedAtNanos = System.nanoTime();
-        try {
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            long durationMs = Duration.ofNanos(System.nanoTime() - startedAtNanos).toMillis();
-            log.debug(
-                    "Bybit web API request completed: path={}, status={}, durationMs={}",
-                    path,
-                    response.statusCode(),
-                    durationMs
-            );
-            if (response.statusCode() >= 400) {
-                boolean retryable = response.statusCode() == 429 || response.statusCode() >= 500;
-                throw new BybitApiException("Bybit web HTTP " + response.statusCode() + " for " + path, retryable);
-            }
-            JsonNode root = objectMapper.readTree(response.body());
-            assertSuccess(root, path);
-            return root.path("result");
-        } catch (IOException exception) {
-            throw new BybitApiException("Bybit web request failed for " + path, exception, true);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new BybitApiException("Bybit web request interrupted for " + path, exception);
         }
     }
 
@@ -516,21 +416,6 @@ public class HttpBybitGateway implements BybitGateway {
         return "mainnet".equals(env) || "prod".equals(env) || "production".equals(env)
                 ? "https://api.bybit.com"
                 : "https://api-testnet.bybit.com";
-    }
-
-    private String webBaseUrl() {
-        if (StringUtils.hasText(properties.getWebBaseUrl())) {
-            return properties.getWebBaseUrl().replaceAll("/+$", "");
-        }
-        return "https://api2.bybit.com";
-    }
-
-    private String webGuid() {
-        if (StringUtils.hasText(properties.getWebGuid())) {
-            return properties.getWebGuid();
-        }
-        String source = StringUtils.hasText(properties.getApiKey()) ? properties.getApiKey() : "bybit-payer";
-        return UUID.nameUUIDFromBytes(("bybit-payer:" + source).getBytes(StandardCharsets.UTF_8)).toString();
     }
 
     private boolean isConfigured() {

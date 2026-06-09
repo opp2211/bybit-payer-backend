@@ -212,12 +212,6 @@ Response: `ForeignBybitOrder[]`.
 
 Response: `ForeignBybitOrder`.
 
-### `POST /api/foreign-orders/{id}/cancel`
-
-Повторно запросить отмену чужого ордера.
-
-Response: `ForeignBybitOrder`.
-
 ```ts
 type ForeignBybitOrder = {
   id: number;
@@ -225,13 +219,8 @@ type ForeignBybitOrder = {
   amountRub: number;
   bybitStatus: string | null;
   reason: string;
-  cancelRequested: boolean;
-  cancelRequestAttempts: number;
-  cancelRequestedAt: string | null;
-  attentionRequired: boolean;
   createdAt: string;
   updatedAt: string;
-  lastError: string | null;
 };
 ```
 

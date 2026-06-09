@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import ru.maltsev.bybitpayerbackend.bybit.dto.ForeignBybitOrderResponse;
 import ru.maltsev.bybitpayerbackend.bybit.entity.ForeignBybitOrderEntity;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.repository.ForeignBybitOrderRepository;
 import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
@@ -23,18 +22,15 @@ import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalMapper;
 public class ForeignBybitOrderService {
 
     private final ForeignBybitOrderRepository repository;
-    private final BybitGateway bybitGateway;
     private final WithdrawalMapper mapper;
     private final Clock clock;
 
     public ForeignBybitOrderService(
             ForeignBybitOrderRepository repository,
-            BybitGateway bybitGateway,
             WithdrawalMapper mapper,
             Clock clock
     ) {
         this.repository = repository;
-        this.bybitGateway = bybitGateway;
         this.mapper = mapper;
         this.clock = clock;
     }
@@ -50,12 +46,8 @@ public class ForeignBybitOrderService {
         entity.setAmountRub(order.amountRub());
         entity.setBybitStatus(order.status());
         entity.setReason(reason);
-        entity.setAttentionRequired(true);
         entity.setUpdatedAt(now);
 
-        if (order.paid() && entity.getCancelRequestAttempts() == 0) {
-            requestCancel(entity, now);
-        }
         ForeignBybitOrderEntity saved = repository.save(entity);
         if (created) {
             log.warn(
@@ -79,7 +71,7 @@ public class ForeignBybitOrderService {
 
     @Transactional(readOnly = true)
     public List<ForeignBybitOrderResponse> getActive() {
-        return repository.findByAttentionRequiredTrueOrderByUpdatedAtDescIdDesc().stream()
+        return repository.findAllByOrderByUpdatedAtDescIdDesc().stream()
                 .map(mapper::toForeignOrderResponse)
                 .toList();
     }
@@ -92,34 +84,43 @@ public class ForeignBybitOrderService {
     }
 
     @Transactional
-    public ForeignBybitOrderResponse requestCancel(Long id) {
-        ForeignBybitOrderEntity entity = repository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Foreign Bybit order not found: " + id));
-        requestCancel(entity, Instant.now(clock));
+    public boolean refreshIfTracked(BybitP2pOrder order) {
+        var existing = repository.findByBybitOrderId(order.bybitOrderId());
+        if (existing.isEmpty()) {
+            return false;
+        }
+
+        ForeignBybitOrderEntity entity = existing.get();
+        String previousStatus = entity.getBybitStatus();
+        entity.setAmountRub(order.amountRub());
+        entity.setBybitStatus(order.status());
         entity.setUpdatedAt(Instant.now(clock));
-        return mapper.toForeignOrderResponse(repository.save(entity));
+        repository.save(entity);
+        if (!Objects.equals(previousStatus, entity.getBybitStatus())) {
+            log.info(
+                    "Foreign Bybit order updated: orderId={}, status={}",
+                    entity.getBybitOrderId(),
+                    entity.getBybitStatus()
+            );
+        }
+        return true;
     }
 
     @Transactional
-    public void syncMissingOrders(Set<String> activeOrderIds) {
-        for (ForeignBybitOrderEntity entity : repository.findByAttentionRequiredTrueOrderByUpdatedAtDescIdDesc()) {
-            if (activeOrderIds.contains(entity.getBybitOrderId())) {
-                continue;
-            }
-            try {
-                bybitGateway.fetchOrder(entity.getBybitOrderId())
-                        .ifPresent(order -> syncTerminalState(entity, order));
-            } catch (Exception exception) {
-                entity.setLastError(exception.getMessage());
-                entity.setUpdatedAt(Instant.now(clock));
-                repository.save(entity);
-                log.warn(
-                        "Foreign Bybit order status refresh failed: orderId={}, message={}",
-                        entity.getBybitOrderId(),
-                        exception.getMessage()
-                );
-            }
+    public void removeMissingOrders(Set<String> activeOrderIds) {
+        List<ForeignBybitOrderEntity> missingOrders = repository.findAllByOrderByUpdatedAtDescIdDesc().stream()
+                .filter(entity -> !activeOrderIds.contains(entity.getBybitOrderId()))
+                .toList();
+        if (missingOrders.isEmpty()) {
+            return;
         }
+
+        repository.deleteAll(missingOrders);
+        log.info(
+                "Inactive foreign Bybit orders removed: count={}, orderIds={}",
+                missingOrders.size(),
+                missingOrders.stream().map(ForeignBybitOrderEntity::getBybitOrderId).toList()
+        );
     }
 
     private ForeignBybitOrderEntity newForeignOrder(BybitP2pOrder order, Instant now) {
@@ -129,60 +130,6 @@ public class ForeignBybitOrderService {
         entity.setBybitStatus(order.status());
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
-        entity.setAttentionRequired(true);
         return entity;
-    }
-
-    private void requestCancel(ForeignBybitOrderEntity entity, Instant now) {
-        boolean alreadyRequested = entity.isCancelRequested();
-        String previousError = entity.getLastError();
-        try {
-            bybitGateway.requestCancel(entity.getBybitOrderId());
-            entity.setCancelRequested(true);
-            entity.setCancelRequestedAt(now);
-            entity.setCancelRequestAttempts(entity.getCancelRequestAttempts() + 1);
-            entity.setLastError(null);
-            if (!alreadyRequested) {
-                log.info(
-                        "Foreign Bybit order cancellation requested: orderId={}, attempt={}",
-                        entity.getBybitOrderId(),
-                        entity.getCancelRequestAttempts()
-                );
-            }
-        } catch (Exception exception) {
-            entity.setCancelRequestAttempts(entity.getCancelRequestAttempts() + 1);
-            entity.setLastError(exception.getMessage());
-            if (entity.getCancelRequestAttempts() == 1
-                    || !Objects.equals(previousError, exception.getMessage())) {
-                log.warn(
-                        "Foreign Bybit order cancellation failed: orderId={}, attempt={}, message={}",
-                        entity.getBybitOrderId(),
-                        entity.getCancelRequestAttempts(),
-                        exception.getMessage()
-                );
-            } else {
-                log.debug(
-                        "Foreign Bybit order cancellation still failing: orderId={}, attempt={}",
-                        entity.getBybitOrderId(),
-                        entity.getCancelRequestAttempts()
-                );
-            }
-        }
-    }
-
-    private void syncTerminalState(ForeignBybitOrderEntity entity, BybitP2pOrder order) {
-        entity.setBybitStatus(order.status());
-        entity.setUpdatedAt(Instant.now(clock));
-        entity.setLastError(null);
-        if (order.cancelled()) {
-            entity.setAttentionRequired(false);
-            entity.setReason("Foreign order was cancelled");
-        } else if (order.finished()) {
-            entity.setAttentionRequired(false);
-            entity.setReason("Foreign order was completed outside the system");
-        } else if (order.paid() && entity.getCancelRequestAttempts() == 0) {
-            requestCancel(entity, Instant.now(clock));
-        }
-        repository.save(entity);
     }
 }
