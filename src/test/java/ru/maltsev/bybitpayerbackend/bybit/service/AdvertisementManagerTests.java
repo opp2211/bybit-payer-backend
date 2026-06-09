@@ -81,16 +81,22 @@ class AdvertisementManagerTests {
         manager.rebuildPublication();
         manager.refreshPublicationRate();
         manager.refreshPublicationRate();
+        manager.refreshPublicationRate();
+        manager.refreshPublicationRate();
+        manager.rebuildPublication();
 
         assertThat(commands)
                 .extracting(AdUpdateCommand::rate)
                 .containsExactly(
                         new BigDecimal("85"),
                         new BigDecimal("85"),
-                        new BigDecimal("86")
+                        new BigDecimal("86"),
+                        new BigDecimal("87"),
+                        new BigDecimal("88"),
+                        new BigDecimal("85")
                 );
-        assertThat(state.getLastRateSourcePosition()).isEqualTo(14);
-        assertThat(state.getNextRateSourcePosition()).isEqualTo(13);
+        assertThat(state.getLastRateSourcePosition()).isEqualTo(15);
+        assertThat(state.getNextRateSourcePosition()).isEqualTo(15);
         assertThat(state.getReferenceRate7()).isEqualByComparingTo("75.50");
         assertThat(state.getReferenceRate7WithFee()).isEqualByComparingTo("75.29294440");
     }

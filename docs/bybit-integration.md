@@ -71,7 +71,8 @@ The gateway requests `/v5/market/time` before signed requests and falls back to 
 The managed ad starts from `BYBIT_RATE_SOURCE_AD_INDEX` (15 by default). Every
 `BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES` minutes it refreshes the same position once, then moves
 toward `BYBIT_RATE_SOURCE_MIN_AD_INDEX` (7 by default) and never goes below it. A queue rebuild
-resets the sequence.
+resets the sequence. Binding a new Bybit order rebuilds the managed ad, so a rate that had already
+moved to a lower position, for example 12, returns to position 15.
 
 The effective seventh-position RUB/USDT rate includes the P2P fee in the USDT total:
 `effective rate = market rate / (1 + P2P_FEE_RATE)`. For example, `75.50 / 1.00275 = 75.29294440`.

@@ -1,6 +1,7 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -28,6 +29,48 @@ import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 class BybitOrderWatcherTests {
 
     private static final Instant NOW = Instant.parse("2026-06-09T12:00:00Z");
+
+    @Test
+    void resetsPublicationRateWhenNewOrderIsBound() {
+        BybitGateway gateway = mock(BybitGateway.class);
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        BybitOrderBindingRepository bindingRepository = mock(BybitOrderBindingRepository.class);
+        ForeignBybitOrderService foreignOrderService = mock(ForeignBybitOrderService.class);
+        AdvertisementManager advertisementManager = mock(AdvertisementManager.class);
+        BybitChatService chatService = mock(BybitChatService.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(1L);
+        withdrawal.setStatus(WithdrawalStatus.IN_WORK);
+        withdrawal.setAmountRub(new BigDecimal("10000"));
+
+        when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10")));
+        when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
+        when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
+        when(withdrawalRepository.findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.IN_WORK,
+                new BigDecimal("10000")
+        )).thenReturn(List.of(withdrawal));
+        when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        BybitOrderWatcher watcher = new BybitOrderWatcher(
+                gateway,
+                withdrawalRepository,
+                bindingRepository,
+                foreignOrderService,
+                advertisementManager,
+                chatService,
+                eventService,
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+
+        watcher.pollActiveOrders();
+
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_IN_PROGRESS);
+        assertThat(withdrawal.getBybitOrderId()).isEqualTo("order-1");
+        verify(advertisementManager).rebuildPublication();
+    }
 
     @Test
     void returnsWithdrawalToWorkWhenBoundOrderWasCancelled() {
