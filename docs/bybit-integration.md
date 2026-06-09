@@ -73,6 +73,9 @@ The managed ad starts from `BYBIT_RATE_SOURCE_AD_INDEX` (15 by default). Every
 toward `BYBIT_RATE_SOURCE_MIN_AD_INDEX` (7 by default) and never goes below it. A queue rebuild
 resets the sequence.
 
+The effective seventh-position RUB/USDT rate includes the P2P fee in the USDT total:
+`effective rate = market rate / (1 + P2P_FEE_RATE)`. For example, `75.50 / 1.00275 = 75.29294440`.
+
 Bound orders are checked through `/v5/p2p/order/info` after they disappear from the pending list:
 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;

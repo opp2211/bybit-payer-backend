@@ -266,6 +266,9 @@ type SystemStatus = {
 };
 ```
 
+`referenceRate7WithFee` is the effective RUB/USDT rate after adding the fee to the USDT amount:
+`referenceRate7 / (1 + P2P_FEE_RATE)`. `availableRubBalance` uses this effective rate.
+
 ### `POST /api/system/resync`
 
 Запускает безопасную пересборку очереди и состояния объявления.

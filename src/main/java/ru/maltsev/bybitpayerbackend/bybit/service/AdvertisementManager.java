@@ -186,8 +186,11 @@ public class AdvertisementManager {
                 ? rate
                 : bybitGateway.fetchReferenceRate(minRatePosition());
         BigDecimal referenceRate7WithFee = referenceRate7
-                .multiply(BigDecimal.ONE.add(businessProperties.getP2pFeeRate()))
-                .setScale(8, RoundingMode.HALF_UP);
+                .divide(
+                        BigDecimal.ONE.add(businessProperties.getP2pFeeRate()),
+                        8,
+                        RoundingMode.HALF_UP
+                );
         BigDecimal availableUsdt = bybitGateway.fetchAvailableUsdtBalance();
         if (published.isEmpty()) {
             return new AdvertisementSnapshot(

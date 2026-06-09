@@ -46,8 +46,12 @@ class AdvertisementManagerTests {
         when(stateRepository.findAll()).thenReturn(List.of(state));
         when(stateRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(gateway.fetchReferenceRate(any(Integer.class)))
-                .thenAnswer(invocation -> new BigDecimal("100")
-                        .subtract(BigDecimal.valueOf(invocation.<Integer>getArgument(0))));
+                .thenAnswer(invocation -> {
+                    int position = invocation.getArgument(0);
+                    return position == 7
+                            ? new BigDecimal("75.50")
+                            : new BigDecimal("100").subtract(BigDecimal.valueOf(position));
+                });
         when(gateway.fetchAvailableUsdtBalance()).thenReturn(new BigDecimal("1000"));
         org.mockito.Mockito.doAnswer(invocation -> {
             commands.add(invocation.getArgument(0));
@@ -87,7 +91,7 @@ class AdvertisementManagerTests {
                 );
         assertThat(state.getLastRateSourcePosition()).isEqualTo(14);
         assertThat(state.getNextRateSourcePosition()).isEqualTo(13);
-        assertThat(state.getReferenceRate7()).isEqualByComparingTo("93");
-        assertThat(state.getReferenceRate7WithFee()).isEqualByComparingTo("93.25575000");
+        assertThat(state.getReferenceRate7()).isEqualByComparingTo("75.50");
+        assertThat(state.getReferenceRate7WithFee()).isEqualByComparingTo("75.29294440");
     }
 }
