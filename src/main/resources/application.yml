@@ -43,6 +43,8 @@ bybit:
   rate-source-payment-method: ${BYBIT_RATE_SOURCE_PAYMENT_METHOD:Bank transfer}
   rate-source-amount: ${BYBIT_RATE_SOURCE_AMOUNT:10000}
   rate-source-ad-index: ${BYBIT_RATE_SOURCE_AD_INDEX:15}
+  rate-source-min-ad-index: ${BYBIT_RATE_SOURCE_MIN_AD_INDEX:7}
+  ad-rate-refresh-interval: ${BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES:5}m
   order-source-side: ${BYBIT_ORDER_SOURCE_SIDE:SELL}
   order-page-size: ${BYBIT_ORDER_PAGE_SIZE:30}
   cancel-reason-code: ${BYBIT_CANCEL_REASON_CODE:sellerOrderCancelReason_sellerOther}
@@ -56,6 +58,7 @@ business:
   chat-message-delay: ${CHAT_MESSAGE_DELAY_MS:1000}ms
   usdt-quantity-scale: ${USDT_QUANTITY_SCALE:4}
   max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
+  p2p-fee-rate: ${P2P_FEE_RATE:0.00275}
   receipt-email-to-send-in-chat: ${RECEIPT_EMAIL_TO_SEND_IN_CHAT:opp2211@gmail.com}
 
 system:

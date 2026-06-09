@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -28,5 +29,10 @@ public class ForeignBybitOrderController {
     @GetMapping("/{id}")
     public ForeignBybitOrderResponse getDetails(@PathVariable Long id) {
         return foreignBybitOrderService.getDetails(id);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ForeignBybitOrderResponse requestCancel(@PathVariable Long id) {
+        return foreignBybitOrderService.requestCancel(id);
     }
 }

@@ -83,8 +83,9 @@ public class ReceiptVerificationWorker {
 
     private void verifyWithdrawal(WithdrawalRequestEntity withdrawal) {
         var verifiedCheck = receiptCheckRepository
-                .findFirstByWithdrawalRequest_IdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+                .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
                         withdrawal.getId(),
+                        withdrawal.getBybitOrderId(),
                         ReceiptVerificationStatus.VERIFIED
                 );
         if (verifiedCheck.isPresent()) {

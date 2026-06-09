@@ -1,22 +1,10 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
-
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitManagedAdStateEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.AdUpdateCommand;
@@ -30,11 +18,23 @@ import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
+
 @Service
 @Slf4j
 public class AdvertisementManager {
 
-    private static final String AD_DESCRIPTION_TEMPLATE = "Только Т-банк! ___ Заходите только на сумму %s руб.  - другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП ___ Понадобится чек с офф. почты банка мне на почту";
+    private static final String AD_DESCRIPTION_TEMPLATE =
+            "Только Т-банк! ___ Заходите только на сумму %s руб.  " +
+                    "- другие суммы - отмена! ___ Принимаю на карту" +
+                    " 3 лица по СБП ___ Понадобится чек с офф. почты" +
+                    " банка мне на почту";
 
     private final ReentrantLock lock = new ReentrantLock();
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -64,7 +64,7 @@ public class AdvertisementManager {
     }
 
     @Transactional
-    public AdvertisementSnapshot rebuildPublication() {
+    public void rebuildPublication() {
         lock.lock();
         try {
             Instant now = Instant.now(clock);
@@ -74,9 +74,10 @@ public class AdvertisementManager {
             List<WithdrawalRequestEntity> published = applyQueueRules(candidates, now);
             withdrawalRepository.saveAll(candidates);
 
-            AdvertisementSnapshot snapshot = buildSnapshot(published);
+            int initialRatePosition = initialRatePosition();
+            AdvertisementSnapshot snapshot = buildSnapshot(published, initialRatePosition);
             ensureBalance(snapshot);
-            persistAndPushAdState(snapshot, now);
+            persistAndPushAdState(snapshot, now, initialRatePosition);
             log.info(
                     "Managed advertisement synchronized: published={}, candidates={}, publishedWithdrawals={}, rate={}, quantityUsdt={}",
                     snapshot.published(),
@@ -85,7 +86,6 @@ public class AdvertisementManager {
                     snapshot.rate(),
                     snapshot.quantityUsdt()
             );
-            return snapshot;
         } catch (BusinessException exception) {
             log.warn(
                     "Managed advertisement synchronization rejected: message={}, details={}",
@@ -96,6 +96,40 @@ public class AdvertisementManager {
         } catch (RuntimeException exception) {
             log.error("Managed advertisement synchronization failed: {}", exception.getMessage(), exception);
             throw exception;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Scheduled(
+            initialDelayString = "${bybit.ad-rate-refresh-interval:5m}",
+            fixedDelayString = "${bybit.ad-rate-refresh-interval:5m}"
+    )
+    @Transactional
+    public void refreshPublicationRate() {
+        lock.lock();
+        try {
+            BybitManagedAdStateEntity currentState = adStateRepository.findAll().stream()
+                    .findFirst()
+                    .orElseGet(this::newAdState);
+            int targetPosition = Optional.ofNullable(currentState.getNextRateSourcePosition())
+                    .orElse(initialRatePosition());
+            targetPosition = Math.max(minRatePosition(), Math.min(initialRatePosition(), targetPosition));
+
+            List<WithdrawalRequestEntity> published = withdrawalRepository
+                    .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK);
+            AdvertisementSnapshot snapshot = buildSnapshot(published, targetPosition);
+            ensureBalance(snapshot);
+            int nextPosition = Math.max(minRatePosition(), targetPosition - 1);
+            persistAndPushAdState(snapshot, Instant.now(clock), nextPosition);
+            log.info(
+                    "Managed advertisement rate refreshed: position={}, nextPosition={}, rate={}",
+                    targetPosition,
+                    nextPosition,
+                    snapshot.rate()
+            );
+        } catch (RuntimeException exception) {
+            log.error("Managed advertisement rate refresh failed: {}", exception.getMessage(), exception);
         } finally {
             lock.unlock();
         }
@@ -143,13 +177,25 @@ public class AdvertisementManager {
         return published;
     }
 
-    private AdvertisementSnapshot buildSnapshot(List<WithdrawalRequestEntity> published) {
-        BigDecimal rate = bybitGateway.fetchReferenceRate();
+    private AdvertisementSnapshot buildSnapshot(
+            List<WithdrawalRequestEntity> published,
+            int rateSourcePosition
+    ) {
+        BigDecimal rate = bybitGateway.fetchReferenceRate(rateSourcePosition);
+        BigDecimal referenceRate7 = rateSourcePosition == minRatePosition()
+                ? rate
+                : bybitGateway.fetchReferenceRate(minRatePosition());
+        BigDecimal referenceRate7WithFee = referenceRate7
+                .multiply(BigDecimal.ONE.add(businessProperties.getP2pFeeRate()))
+                .setScale(8, RoundingMode.HALF_UP);
         BigDecimal availableUsdt = bybitGateway.fetchAvailableUsdtBalance();
         if (published.isEmpty()) {
             return new AdvertisementSnapshot(
                     false,
                     rate,
+                    rateSourcePosition,
+                    referenceRate7,
+                    referenceRate7WithFee,
                     bybitProperties.getDefaultMinRub(),
                     bybitProperties.getDefaultMaxRub(),
                     BigDecimal.ZERO.setScale(businessProperties.getUsdtQuantityScale(), RoundingMode.UNNECESSARY),
@@ -178,7 +224,18 @@ public class AdvertisementManager {
                 .collect(Collectors.joining(" / "));
         String description = AD_DESCRIPTION_TEMPLATE.formatted(amountText);
 
-        return new AdvertisementSnapshot(true, rate, minRub, maxRub, quantityUsdt, description, availableUsdt);
+        return new AdvertisementSnapshot(
+                true,
+                rate,
+                rateSourcePosition,
+                referenceRate7,
+                referenceRate7WithFee,
+                minRub,
+                maxRub,
+                quantityUsdt,
+                description,
+                availableUsdt
+        );
     }
 
     private void ensureBalance(AdvertisementSnapshot snapshot) {
@@ -196,13 +253,22 @@ public class AdvertisementManager {
         );
     }
 
-    private void persistAndPushAdState(AdvertisementSnapshot snapshot, Instant now) {
+    private void persistAndPushAdState(
+            AdvertisementSnapshot snapshot,
+            Instant now,
+            int nextRateSourcePosition
+    ) {
         BybitManagedAdStateEntity state = adStateRepository.findAll().stream()
                 .findFirst()
                 .orElseGet(this::newAdState);
+        boolean wasPublished = state.isPublished();
         state.setBybitAdId(bybitProperties.getP2pAdId());
         state.setPublished(snapshot.published());
         state.setLastRate(snapshot.rate());
+        state.setLastRateSourcePosition(snapshot.rateSourcePosition());
+        state.setNextRateSourcePosition(nextRateSourcePosition);
+        state.setReferenceRate7(snapshot.referenceRate7());
+        state.setReferenceRate7WithFee(snapshot.referenceRate7WithFee());
         state.setLastMinRub(snapshot.minRub());
         state.setLastMaxRub(snapshot.maxRub());
         state.setLastQuantityUsdt(snapshot.quantityUsdt());
@@ -221,7 +287,7 @@ public class AdvertisementManager {
         );
         if (snapshot.published()) {
             bybitGateway.updateManagedAd(command);
-        } else if (StringUtils.hasText(state.getBybitAdId())) {
+        } else if (wasPublished && StringUtils.hasText(state.getBybitAdId())) {
             bybitGateway.unpublishManagedAd(state.getBybitAdId());
         }
 
@@ -232,7 +298,16 @@ public class AdvertisementManager {
         BybitManagedAdStateEntity state = new BybitManagedAdStateEntity();
         state.setBybitAdId(bybitProperties.getP2pAdId());
         state.setPublished(false);
+        state.setNextRateSourcePosition(initialRatePosition());
         return state;
+    }
+
+    private int initialRatePosition() {
+        return Math.max(minRatePosition(), bybitProperties.getRateSourceAdIndex());
+    }
+
+    private int minRatePosition() {
+        return Math.max(1, bybitProperties.getRateSourceMinAdIndex());
     }
 
     private String amountKey(BigDecimal amount) {

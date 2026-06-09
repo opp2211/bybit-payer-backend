@@ -58,4 +58,9 @@ public class WithdrawalController {
     public WithdrawalResponse markSeen(@PathVariable Long id) {
         return withdrawalService.markCompletedSeen(id);
     }
+
+    @PostMapping("/{id}/release")
+    public WithdrawalResponse release(@PathVariable Long id) {
+        return withdrawalService.release(id);
+    }
 }

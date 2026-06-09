@@ -1,6 +1,7 @@
 package ru.maltsev.bybitpayerbackend.system.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -56,6 +57,10 @@ public class SystemStatusService {
         String lastError = currentBybitStatus.lastError() == null
                 ? adState.getLastError()
                 : currentBybitStatus.lastError();
+        BigDecimal availableRubBalance = calculateRubBalance(
+                currentBybitStatus.availableUsdtBalance(),
+                adState.getReferenceRate7WithFee()
+        );
 
         return new SystemStatusResponse(
                 currentBybitStatus.available(),
@@ -64,11 +69,15 @@ public class SystemStatusService {
                 adState.getBybitAdId(),
                 adState.isPublished(),
                 adState.getLastRate(),
+                adState.getLastRateSourcePosition(),
+                adState.getReferenceRate7(),
+                adState.getReferenceRate7WithFee(),
                 adState.getLastMinRub(),
                 adState.getLastMaxRub(),
                 adState.getLastQuantityUsdt(),
                 adState.getLastDescription(),
                 currentBybitStatus.availableUsdtBalance(),
+                availableRubBalance,
                 lastError,
                 currentBybitStatus.checkedAt(),
                 adState.getLastUpdatedAt()
@@ -120,6 +129,13 @@ public class SystemStatusService {
         return mailProperties.isEnabled()
                 && StringUtils.hasText(mailProperties.getUsername())
                 && StringUtils.hasText(mailProperties.getPassword());
+    }
+
+    private BigDecimal calculateRubBalance(BigDecimal availableUsdt, BigDecimal rateWithFee) {
+        if (availableUsdt == null || rateWithFee == null) {
+            return null;
+        }
+        return availableUsdt.multiply(rateWithFee).setScale(2, RoundingMode.HALF_UP);
     }
 
     private void logStatusChange(BybitStatusSnapshot previous, BybitStatusSnapshot current) {

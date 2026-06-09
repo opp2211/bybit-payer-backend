@@ -143,6 +143,46 @@ class HttpBybitGatewayTests {
         }
     }
 
+    @Test
+    void readsTerminalOrderStatusAndUsdtAmounts() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v5/market/time", exchange -> respond(exchange, """
+                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
+                """));
+        server.createContext("/v5/p2p/order/info", exchange -> respond(exchange, """
+                {
+                  "retCode": 0,
+                  "retMsg": "OK",
+                  "result": {
+                    "id": "order-123",
+                    "amount": "10000",
+                    "quantity": "108.25",
+                    "fee": "0.30",
+                    "status": 50
+                  }
+                }
+                """));
+        server.start();
+
+        try {
+            BybitProperties properties = properties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setApiKey("test-api-key");
+            properties.setApiSecret("test-api-secret");
+            properties.setP2pAdId("ad-123");
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+
+            BybitP2pOrder order = gateway.fetchOrder("order-123").orElseThrow();
+
+            assertThat(order.finished()).isTrue();
+            assertThat(order.quantityUsdt()).isEqualByComparingTo("108.25");
+            assertThat(order.feeUsdt()).isEqualByComparingTo("0.30");
+            assertThat(order.totalUsdt()).isEqualByComparingTo("108.55");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private JsonNode captureAdUpdatePayload(int adStatus) throws Exception {
         AtomicReference<String> updateRequestBody = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

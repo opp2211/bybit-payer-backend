@@ -12,8 +12,9 @@ public interface EmailReceiptCheckRepository extends JpaRepository<EmailReceiptC
 
     List<EmailReceiptCheckEntity> findByWithdrawalRequest_IdOrderByCreatedAtDescIdDesc(Long withdrawalRequestId);
 
-    Optional<EmailReceiptCheckEntity> findFirstByWithdrawalRequest_IdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+    Optional<EmailReceiptCheckEntity> findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
             Long withdrawalRequestId,
+            String bybitOrderId,
             ReceiptVerificationStatus verificationStatus
     );
 }

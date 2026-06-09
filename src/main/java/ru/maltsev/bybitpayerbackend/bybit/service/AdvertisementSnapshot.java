@@ -5,6 +5,9 @@ import java.math.BigDecimal;
 public record AdvertisementSnapshot(
         boolean published,
         BigDecimal rate,
+        int rateSourcePosition,
+        BigDecimal referenceRate7,
+        BigDecimal referenceRate7WithFee,
         BigDecimal minRub,
         BigDecimal maxRub,
         BigDecimal quantityUsdt,

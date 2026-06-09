@@ -31,6 +31,7 @@ public class BybitProperties {
     private String rateSourcePaymentMethod = "Bank transfer";
     private BigDecimal rateSourceAmount = new BigDecimal("10000");
     private int rateSourceAdIndex = 15;
+    private int rateSourceMinAdIndex = 7;
     private String orderSourceSide = "SELL";
     private int orderPageSize = 30;
     private String cancelReasonCode = "sellerOrderCancelReason_sellerOther";
@@ -214,6 +215,14 @@ public class BybitProperties {
 
     public void setRateSourceAdIndex(int rateSourceAdIndex) {
         this.rateSourceAdIndex = rateSourceAdIndex;
+    }
+
+    public int getRateSourceMinAdIndex() {
+        return rateSourceMinAdIndex;
+    }
+
+    public void setRateSourceMinAdIndex(int rateSourceMinAdIndex) {
+        this.rateSourceMinAdIndex = rateSourceMinAdIndex;
     }
 
     public String getOrderSourceSide() {

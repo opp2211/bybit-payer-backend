@@ -18,6 +18,9 @@ public record WithdrawalResponse(
         Integer queuePosition,
         String bybitOrderId,
         BigDecimal bybitOrderAmountRub,
+        BigDecimal bybitOrderQuantityUsdt,
+        BigDecimal bybitOrderFeeUsdt,
+        BigDecimal bybitOrderTotalUsdt,
         Instant createdAt,
         Instant queuedAt,
         Instant publishedAt,
@@ -29,6 +32,7 @@ public record WithdrawalResponse(
         Instant cancelledAt,
         String lastError,
         String lastWarning,
-        boolean canCancel
+        boolean canCancel,
+        boolean canRelease
 ) {
 }

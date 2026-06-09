@@ -2,6 +2,7 @@ package ru.maltsev.bybitpayerbackend.bybit.gateway;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -15,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import javax.crypto.Mac;
@@ -95,12 +97,20 @@ public class HttpBybitGateway implements BybitGateway {
 
     @Override
     public BigDecimal fetchReferenceRate() {
+        return fetchReferenceRate(properties.getRateSourceAdIndex());
+    }
+
+    @Override
+    public BigDecimal fetchReferenceRate(int adIndex) {
+        if (adIndex < 1) {
+            throw new BybitApiException("Bybit reference ad index must be positive");
+        }
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("tokenId", properties.getRateSourceAsset());
         request.put("currencyId", properties.getRateSourceFiat());
         request.put("side", onlineAdSideCode(properties.getRateSourceSide()));
         request.put("page", "1");
-        request.put("size", String.valueOf(Math.max(1, properties.getRateSourceAdIndex())));
+        request.put("size", String.valueOf(adIndex));
         request.put("amount", decimal(properties.getRateSourceAmount()));
 
         List<String> paymentMethods = paymentMethodCodes(properties.getRateSourcePaymentMethod());
@@ -110,11 +120,11 @@ public class HttpBybitGateway implements BybitGateway {
 
         JsonNode result = post("/v5/p2p/item/online", request);
         JsonNode items = result.path("items");
-        if (!items.isArray() || items.size() < properties.getRateSourceAdIndex()) {
-            throw new BybitApiException("Bybit P2P rate source does not contain ad #" + properties.getRateSourceAdIndex());
+        if (!items.isArray() || items.size() < adIndex) {
+            throw new BybitApiException("Bybit P2P rate source does not contain ad #" + adIndex);
         }
 
-        String price = items.get(properties.getRateSourceAdIndex() - 1).path("price").asText();
+        String price = items.get(adIndex - 1).path("price").asText();
         return parsePositiveDecimal(price, "Bybit reference price");
     }
 
@@ -161,15 +171,23 @@ public class HttpBybitGateway implements BybitGateway {
             if (!StringUtils.hasText(orderId)) {
                 continue;
             }
-            int status = item.path("status").asInt();
-            orders.add(new BybitP2pOrder(
-                    orderId,
-                    new BigDecimal(item.path("amount").asText("0")),
-                    String.valueOf(status),
-                    status == ORDER_STATUS_WAITING_SELLER_RELEASE
-            ));
+            orders.add(toOrder(item));
         }
         return List.copyOf(orders);
+    }
+
+    @Override
+    public Optional<BybitP2pOrder> fetchOrder(String bybitOrderId) {
+        if (!StringUtils.hasText(bybitOrderId)) {
+            return Optional.empty();
+        }
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("orderId", bybitOrderId);
+        JsonNode result = post("/v5/p2p/order/info", request);
+        if (!StringUtils.hasText(result.path("id").asText())) {
+            return Optional.empty();
+        }
+        return Optional.of(toOrder(result));
     }
 
     @Override
@@ -621,6 +639,45 @@ public class HttpBybitGateway implements BybitGateway {
             throw new BybitApiException(fieldName + " must be positive");
         }
         return decimal;
+    }
+
+    private BybitP2pOrder toOrder(JsonNode item) {
+        BigDecimal amountRub = decimalOrZero(item.path("amount").asText());
+        BigDecimal quantityUsdt = firstDecimal(
+                item.path("notifyTokenQuantity").asText(),
+                item.path("quantity").asText()
+        );
+        if (quantityUsdt == null) {
+            BigDecimal price = decimalOrZero(item.path("price").asText());
+            quantityUsdt = price.signum() > 0
+                    ? amountRub.divide(price, 8, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+        }
+        BigDecimal feeUsdt = firstDecimal(
+                item.path("fee").asText(),
+                item.path("makerFee").asText(),
+                item.path("takerFee").asText()
+        );
+        return new BybitP2pOrder(
+                item.path("id").asText(),
+                amountRub,
+                String.valueOf(item.path("status").asInt()),
+                quantityUsdt,
+                feeUsdt == null ? BigDecimal.ZERO : feeUsdt
+        );
+    }
+
+    private BigDecimal firstDecimal(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return decimalOrZero(value);
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal decimalOrZero(String value) {
+        return StringUtils.hasText(value) ? new BigDecimal(value) : BigDecimal.ZERO;
     }
 
     private List<String> paymentIds(JsonNode details) {

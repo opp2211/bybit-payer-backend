@@ -65,6 +65,12 @@ public class WithdrawalRequestEntity {
     @Column(name = "bybit_order_amount_rub", precision = 19, scale = 2)
     private BigDecimal bybitOrderAmountRub;
 
+    @Column(name = "bybit_order_quantity_usdt", precision = 19, scale = 8)
+    private BigDecimal bybitOrderQuantityUsdt;
+
+    @Column(name = "bybit_order_fee_usdt", precision = 19, scale = 8)
+    private BigDecimal bybitOrderFeeUsdt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

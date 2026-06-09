@@ -2,6 +2,7 @@ package ru.maltsev.bybitpayerbackend.bybit.gateway;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 public interface BybitGateway {
 
@@ -9,9 +10,13 @@ public interface BybitGateway {
 
     BigDecimal fetchReferenceRate();
 
+    BigDecimal fetchReferenceRate(int adIndex);
+
     BigDecimal fetchAvailableUsdtBalance();
 
     List<BybitP2pOrder> fetchActiveOrders();
+
+    Optional<BybitP2pOrder> fetchOrder(String bybitOrderId);
 
     void updateManagedAd(AdUpdateCommand command);
 

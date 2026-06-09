@@ -64,6 +64,8 @@ class SystemStatusServiceTests {
         assertThat(response.bybitApiAvailable()).isTrue();
         assertThat(response.bybitMode()).isEqualTo("HTTP");
         assertThat(response.availableUsdtBalance()).isEqualByComparingTo("123.45");
+        assertThat(response.availableRubBalance()).isEqualByComparingTo("11426.51");
+        assertThat(response.currentRateSourcePosition()).isEqualTo(15);
         assertThat(response.lastSystemError()).isNull();
         assertThat(response.bybitLastCheckedAt()).isEqualTo(NOW);
         verifyNoInteractions(bybitGateway);
@@ -90,6 +92,9 @@ class SystemStatusServiceTests {
         state.setBybitAdId("ad-123");
         state.setPublished(true);
         state.setLastRate(new BigDecimal("92.31"));
+        state.setLastRateSourcePosition(15);
+        state.setReferenceRate7(new BigDecimal("92.31"));
+        state.setReferenceRate7WithFee(new BigDecimal("92.5598525"));
         state.setLastUpdatedAt(NOW.minusSeconds(60));
         return state;
     }

@@ -5,12 +5,15 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bank.service.BankService;
+import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
+import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitChatMessageLogRepository;
@@ -29,12 +32,14 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class WithdrawalService {
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventRepository eventRepository;
     private final BybitChatMessageLogRepository chatMessageLogRepository;
     private final EmailReceiptCheckRepository receiptCheckRepository;
+    private final BybitOrderBindingRepository bindingRepository;
     private final WithdrawalInputNormalizer normalizer;
     private final WithdrawalEventService eventService;
     private final AdvertisementManager advertisementManager;
@@ -42,32 +47,6 @@ public class WithdrawalService {
     private final BankService bankService;
     private final WithdrawalMapper mapper;
     private final Clock clock;
-
-    public WithdrawalService(
-            WithdrawalRequestRepository withdrawalRepository,
-            WithdrawalEventRepository eventRepository,
-            BybitChatMessageLogRepository chatMessageLogRepository,
-            EmailReceiptCheckRepository receiptCheckRepository,
-            WithdrawalInputNormalizer normalizer,
-            WithdrawalEventService eventService,
-            AdvertisementManager advertisementManager,
-            BybitGateway bybitGateway,
-            BankService bankService,
-            WithdrawalMapper mapper,
-            Clock clock
-    ) {
-        this.withdrawalRepository = withdrawalRepository;
-        this.eventRepository = eventRepository;
-        this.chatMessageLogRepository = chatMessageLogRepository;
-        this.receiptCheckRepository = receiptCheckRepository;
-        this.normalizer = normalizer;
-        this.eventService = eventService;
-        this.advertisementManager = advertisementManager;
-        this.bybitGateway = bybitGateway;
-        this.bankService = bankService;
-        this.mapper = mapper;
-        this.clock = clock;
-    }
 
     @Transactional
     public WithdrawalResponse create(CreateWithdrawalRequest request) {
@@ -136,7 +115,7 @@ public class WithdrawalService {
     public WithdrawalResponse cancel(Long id) {
         WithdrawalRequestEntity withdrawal = getRequiredEntity(id);
         WithdrawalStatus previousStatus = withdrawal.getStatus();
-        if (!withdrawal.getStatus().canBeCancelled()) {
+        if (!previousStatus.canBeCancelled()) {
             throw BusinessException.conflict("Withdrawal cannot be cancelled in status " + withdrawal.getStatus());
         }
 
@@ -175,6 +154,42 @@ public class WithdrawalService {
         eventService.add(withdrawal, WithdrawalEventType.COMPLETION_SEEN, "User confirmed completed withdrawal");
         WithdrawalRequestEntity saved = withdrawalRepository.save(withdrawal);
         log.debug("Withdrawal completion marked as seen: id={}", saved.getId());
+        return mapper.toResponse(saved);
+    }
+
+    @Transactional
+    public WithdrawalResponse release(Long id) {
+        WithdrawalRequestEntity withdrawal = getRequiredEntity(id);
+        if (!withdrawal.getStatus().canBeReleased() || withdrawal.getBybitOrderId() == null) {
+            throw BusinessException.conflict(
+                    "Withdrawal cannot be released in status " + withdrawal.getStatus()
+            );
+        }
+        var binding = bindingRepository
+                .findByWithdrawalRequest_IdAndStatus(id, OrderBindingStatus.ACTIVE)
+                .orElseThrow(() -> BusinessException.conflict("Active Bybit order binding not found"));
+
+        bybitGateway.releaseOrder(withdrawal.getBybitOrderId());
+        binding.setStatus(OrderBindingStatus.RELEASED);
+        bindingRepository.save(binding);
+
+        withdrawal.setStatus(WithdrawalStatus.COMPLETED);
+        withdrawal.setCompletedAt(Instant.now(clock));
+        withdrawal.setCompletionSeen(false);
+        withdrawal.setAttentionRequired(false);
+        withdrawal.setLastError(null);
+        withdrawal.setLastWarning(null);
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.MANUAL_RELEASE_SUCCEEDED,
+                "Bybit order released manually"
+        );
+        WithdrawalRequestEntity saved = withdrawalRepository.save(withdrawal);
+        log.warn(
+                "Withdrawal released manually: id={}, orderId={}",
+                saved.getId(),
+                saved.getBybitOrderId()
+        );
         return mapper.toResponse(saved);
     }
 

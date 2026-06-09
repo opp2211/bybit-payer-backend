@@ -2,7 +2,9 @@ package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -57,24 +59,39 @@ public class BybitOrderWatcher {
     @Transactional
     public void pollActiveOrders() {
         List<BybitP2pOrder> orders = bybitGateway.fetchActiveOrders();
+        Set<String> activeOrderIds = new HashSet<>();
+        boolean publicationChanged = false;
         if (!orders.isEmpty()) {
             log.debug("Active Bybit orders fetched: count={}", orders.size());
         }
         for (BybitP2pOrder order : orders) {
-            processOrder(order);
+            activeOrderIds.add(order.bybitOrderId());
+            publicationChanged = processOrder(order) || publicationChanged;
+        }
+        publicationChanged = syncMissingBoundOrders(activeOrderIds) || publicationChanged;
+        foreignOrderService.syncMissingOrders(activeOrderIds);
+        if (publicationChanged) {
+            advertisementManager.rebuildPublication();
         }
     }
 
-    private void processOrder(BybitP2pOrder order) {
-        bindingRepository.findByBybitOrderId(order.bybitOrderId())
-                .ifPresentOrElse(
-                        binding -> syncBoundOrder(binding, order),
-                        () -> bindOrMarkForeign(order)
-                );
+    private boolean processOrder(BybitP2pOrder order) {
+        return bindingRepository.findByBybitOrderId(order.bybitOrderId())
+                .map(binding -> binding.getStatus() == OrderBindingStatus.ACTIVE
+                        && syncBoundOrder(binding, order))
+                .orElseGet(() -> bindOrMarkForeign(order));
     }
 
-    private void syncBoundOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
+    private boolean syncBoundOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
         WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
+        updateOrderAmounts(withdrawal, order);
+        if (order.cancelled()) {
+            return returnWithdrawalToWork(binding, withdrawal, order);
+        }
+        if (order.finished()) {
+            completeWithdrawal(binding, withdrawal, order);
+            return false;
+        }
         if (order.paid() && withdrawal.getStatus() == WithdrawalStatus.PAYMENT_IN_PROGRESS) {
             Instant now = Instant.now(clock);
             withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
@@ -89,9 +106,10 @@ public class BybitOrderWatcher {
                     withdrawal.getId()
             );
         }
+        return false;
     }
 
-    private void bindOrMarkForeign(BybitP2pOrder order) {
+    private boolean bindOrMarkForeign(BybitP2pOrder order) {
         List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
                 .findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK, order.amountRub());
         if (matchingWithdrawals.size() != 1) {
@@ -99,7 +117,7 @@ public class BybitOrderWatcher {
                     ? "No IN_WORK withdrawal with this amount"
                     : "More than one IN_WORK withdrawal matched this amount";
             foreignOrderService.upsert(order, reason);
-            return;
+            return false;
         }
 
         WithdrawalRequestEntity withdrawal = matchingWithdrawals.getFirst();
@@ -107,6 +125,8 @@ public class BybitOrderWatcher {
         withdrawal.setStatus(WithdrawalStatus.PAYMENT_IN_PROGRESS);
         withdrawal.setBybitOrderId(order.bybitOrderId());
         withdrawal.setBybitOrderAmountRub(order.amountRub());
+        withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
+        withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
         withdrawal.setOrderFoundAt(now);
         withdrawalRepository.save(withdrawal);
 
@@ -119,7 +139,6 @@ public class BybitOrderWatcher {
         bindingRepository.save(binding);
 
         eventService.add(withdrawal, WithdrawalEventType.ORDER_FOUND, "Bybit order matched withdrawal");
-        advertisementManager.rebuildPublication();
         chatService.sendRequisites(withdrawal);
         log.info(
                 "Bybit order bound to withdrawal: orderId={}, withdrawalId={}, amountRub={}",
@@ -127,5 +146,109 @@ public class BybitOrderWatcher {
                 withdrawal.getId(),
                 order.amountRub()
         );
+        return true;
+    }
+
+    private boolean syncMissingBoundOrders(Set<String> activeOrderIds) {
+        boolean publicationChanged = false;
+        for (BybitOrderBindingEntity binding : bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)) {
+            if (activeOrderIds.contains(binding.getBybitOrderId())) {
+                continue;
+            }
+            try {
+                publicationChanged = bybitGateway.fetchOrder(binding.getBybitOrderId())
+                        .map(order -> syncBoundOrder(binding, order))
+                        .orElse(false) || publicationChanged;
+            } catch (Exception exception) {
+                WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
+                withdrawal.setAttentionRequired(true);
+                withdrawal.setLastError(exception.getMessage());
+                withdrawalRepository.save(withdrawal);
+                log.warn(
+                        "Bound Bybit order status refresh failed: orderId={}, withdrawalId={}, message={}",
+                        binding.getBybitOrderId(),
+                        withdrawal.getId(),
+                        exception.getMessage()
+                );
+            }
+        }
+        return publicationChanged;
+    }
+
+    private boolean returnWithdrawalToWork(
+            BybitOrderBindingEntity binding,
+            WithdrawalRequestEntity withdrawal,
+            BybitP2pOrder order
+    ) {
+        String cancelledOrderId = binding.getBybitOrderId();
+        binding.setStatus(OrderBindingStatus.CANCELLED);
+        bindingRepository.save(binding);
+
+        withdrawal.setStatus(WithdrawalStatus.NEW);
+        withdrawal.setBybitOrderId(null);
+        withdrawal.setBybitOrderAmountRub(null);
+        withdrawal.setBybitOrderQuantityUsdt(null);
+        withdrawal.setBybitOrderFeeUsdt(null);
+        withdrawal.setOrderFoundAt(null);
+        withdrawal.setRequisitesSentAt(null);
+        withdrawal.setPaidAt(null);
+        withdrawal.setVerificationStartedAt(null);
+        withdrawal.setAttentionRequired(false);
+        withdrawal.setLastError(null);
+        withdrawal.setLastWarning(null);
+        withdrawalRepository.save(withdrawal);
+
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.ORDER_CANCELLED,
+                "Bybit order cancelled: " + cancelledOrderId,
+                "{\"status\":\"" + order.status() + "\"}"
+        );
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.WITHDRAWAL_RETURNED_TO_WORK,
+                "Withdrawal returned to publication after order cancellation"
+        );
+        log.info(
+                "Cancelled Bybit order detached: orderId={}, withdrawalId={}, status={}",
+                cancelledOrderId,
+                withdrawal.getId(),
+                order.status()
+        );
+        return true;
+    }
+
+    private void completeWithdrawal(
+            BybitOrderBindingEntity binding,
+            WithdrawalRequestEntity withdrawal,
+            BybitP2pOrder order
+    ) {
+        binding.setStatus(OrderBindingStatus.RELEASED);
+        bindingRepository.save(binding);
+
+        withdrawal.setStatus(WithdrawalStatus.COMPLETED);
+        withdrawal.setCompletedAt(Instant.now(clock));
+        withdrawal.setCompletionSeen(false);
+        withdrawal.setAttentionRequired(false);
+        withdrawal.setLastError(null);
+        withdrawal.setLastWarning(null);
+        withdrawalRepository.save(withdrawal);
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.ORDER_COMPLETED_EXTERNALLY,
+                "Bybit order was completed manually",
+                "{\"status\":\"" + order.status() + "\"}"
+        );
+        log.info(
+                "Withdrawal completed from external Bybit status: orderId={}, withdrawalId={}",
+                binding.getBybitOrderId(),
+                withdrawal.getId()
+        );
+    }
+
+    private void updateOrderAmounts(WithdrawalRequestEntity withdrawal, BybitP2pOrder order) {
+        withdrawal.setBybitOrderAmountRub(order.amountRub());
+        withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
+        withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
     }
 }

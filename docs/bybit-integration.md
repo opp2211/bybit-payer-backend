@@ -40,6 +40,7 @@ BYBIT_BALANCE_COIN=USDT
 - `POST /v5/p2p/item/update` — update/relist managed ad.
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
+- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
 - `POST /v5/p2p/order/message/send` — send requisites to order chat.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
@@ -66,6 +67,16 @@ For order polling, the side mapping follows Bybit order docs:
 - `SELL` -> `1`
 
 The gateway requests `/v5/market/time` before signed requests and falls back to local time if server time is temporarily unavailable.
+
+The managed ad starts from `BYBIT_RATE_SOURCE_AD_INDEX` (15 by default). Every
+`BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES` minutes it refreshes the same position once, then moves
+toward `BYBIT_RATE_SOURCE_MIN_AD_INDEX` (7 by default) and never goes below it. A queue rebuild
+resets the sequence.
+
+Bound orders are checked through `/v5/p2p/order/info` after they disappear from the pending list:
+
+- status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
+- status `50` completes the withdrawal because the assets were released outside the application.
 
 The checked Bybit P2P docs and the official `bybit_p2p` SDK do not expose a public signed v5 endpoint for submitting a seller-side order cancellation request after the buyer marks a foreign order as paid.
 

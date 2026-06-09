@@ -2,6 +2,7 @@ package ru.maltsev.bybitpayerbackend.bybit.gateway;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -34,6 +35,11 @@ public class LocalBybitGateway implements BybitGateway {
     }
 
     @Override
+    public BigDecimal fetchReferenceRate(int adIndex) {
+        return fetchReferenceRate();
+    }
+
+    @Override
     public BigDecimal fetchAvailableUsdtBalance() {
         return properties.getLocal().getAvailableUsdt();
     }
@@ -41,6 +47,11 @@ public class LocalBybitGateway implements BybitGateway {
     @Override
     public List<BybitP2pOrder> fetchActiveOrders() {
         return List.of();
+    }
+
+    @Override
+    public Optional<BybitP2pOrder> fetchOrder(String bybitOrderId) {
+        return Optional.empty();
     }
 
     @Override

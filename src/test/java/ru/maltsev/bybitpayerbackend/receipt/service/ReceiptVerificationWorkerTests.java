@@ -130,8 +130,9 @@ class ReceiptVerificationWorkerTests {
         when(fixture.withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.PAYMENT_VERIFICATION))
                 .thenReturn(List.of(withdrawal));
         when(fixture.receiptCheckRepository
-                .findFirstByWithdrawalRequest_IdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+                .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
                         withdrawal.getId(),
+                        withdrawal.getBybitOrderId(),
                         ReceiptVerificationStatus.VERIFIED
                 ))
                 .thenReturn(Optional.of(verifiedCheck));
@@ -211,7 +212,8 @@ class ReceiptVerificationWorkerTests {
             when(ignoredReceiptRepository.existsByWithdrawalRequest_IdAndReceiptKey(any(), any()))
                     .thenReturn(false);
             when(receiptCheckRepository
-                    .findFirstByWithdrawalRequest_IdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+                    .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+                            any(),
                             any(),
                             any()
                     ))

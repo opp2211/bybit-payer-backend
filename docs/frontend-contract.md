@@ -119,6 +119,13 @@ Response: `Withdrawal`.
 
 Response: `Withdrawal`.
 
+### `POST /api/withdrawals/{id}/release`
+
+Вручную отпустить USDT и завершить заявку. Доступно только для
+`PAYMENT_VERIFICATION` и `ERROR`, если у заявки есть активная привязка к Bybit-ордеру.
+
+Response: `Withdrawal`.
+
 ### DTO
 
 ```ts
@@ -137,6 +144,9 @@ type Withdrawal = {
   queuePosition: number | null;
   bybitOrderId: string | null;
   bybitOrderAmountRub: number | null;
+  bybitOrderQuantityUsdt: number | null;
+  bybitOrderFeeUsdt: number | null;
+  bybitOrderTotalUsdt: number | null;
   createdAt: string;
   queuedAt: string | null;
   publishedAt: string | null;
@@ -149,6 +159,7 @@ type Withdrawal = {
   lastError: string | null;
   lastWarning: string | null;
   canCancel: boolean;
+  canRelease: boolean;
 };
 
 type WithdrawalEvent = {
@@ -201,6 +212,12 @@ Response: `ForeignBybitOrder[]`.
 
 Response: `ForeignBybitOrder`.
 
+### `POST /api/foreign-orders/{id}/cancel`
+
+Повторно запросить отмену чужого ордера.
+
+Response: `ForeignBybitOrder`.
+
 ```ts
 type ForeignBybitOrder = {
   id: number;
@@ -234,11 +251,15 @@ type SystemStatus = {
   bybitAdId: string | null;
   adPublished: boolean;
   currentRate: number | null;
+  currentRateSourcePosition: number | null;
+  referenceRate7: number | null;
+  referenceRate7WithFee: number | null;
   currentMinRub: number | null;
   currentMaxRub: number | null;
   currentQuantityUsdt: number | null;
   currentDescription: string | null;
   availableUsdtBalance: number | null;
+  availableRubBalance: number | null;
   lastSystemError: string | null;
   bybitLastCheckedAt: string | null;
   lastUpdatedAt: string | null;

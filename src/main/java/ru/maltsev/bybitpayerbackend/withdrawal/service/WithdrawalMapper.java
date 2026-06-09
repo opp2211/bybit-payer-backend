@@ -32,6 +32,9 @@ public class WithdrawalMapper {
                 entity.getQueuePosition(),
                 entity.getBybitOrderId(),
                 entity.getBybitOrderAmountRub(),
+                entity.getBybitOrderQuantityUsdt(),
+                entity.getBybitOrderFeeUsdt(),
+                totalUsdt(entity),
                 entity.getCreatedAt(),
                 entity.getQueuedAt(),
                 entity.getPublishedAt(),
@@ -43,7 +46,19 @@ public class WithdrawalMapper {
                 entity.getCancelledAt(),
                 entity.getLastError(),
                 entity.getLastWarning(),
-                entity.getStatus().canBeCancelled()
+                entity.getStatus().canBeCancelled(),
+                entity.getStatus().canBeReleased() && entity.getBybitOrderId() != null
+        );
+    }
+
+    private java.math.BigDecimal totalUsdt(WithdrawalRequestEntity entity) {
+        if (entity.getBybitOrderQuantityUsdt() == null) {
+            return null;
+        }
+        return entity.getBybitOrderQuantityUsdt().add(
+                entity.getBybitOrderFeeUsdt() == null
+                        ? java.math.BigDecimal.ZERO
+                        : entity.getBybitOrderFeeUsdt()
         );
     }
 
