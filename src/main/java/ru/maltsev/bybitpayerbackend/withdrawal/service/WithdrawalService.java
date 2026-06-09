@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalEventReposit
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 
 @Service
+@Slf4j
 public class WithdrawalService {
 
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -89,6 +91,13 @@ public class WithdrawalService {
 
         advertisementManager.rebuildPublication();
         WithdrawalRequestEntity refreshed = getRequiredEntity(withdrawal.getId());
+        log.info(
+                "Withdrawal created: id={}, amountRub={}, bank={}, status={}",
+                refreshed.getId(),
+                refreshed.getAmountRub(),
+                refreshed.getRecipientBank().getCode(),
+                refreshed.getStatus()
+        );
         return mapper.toResponse(refreshed);
     }
 
@@ -126,6 +135,7 @@ public class WithdrawalService {
     @Transactional
     public WithdrawalResponse cancel(Long id) {
         WithdrawalRequestEntity withdrawal = getRequiredEntity(id);
+        WithdrawalStatus previousStatus = withdrawal.getStatus();
         if (!withdrawal.getStatus().canBeCancelled()) {
             throw BusinessException.conflict("Withdrawal cannot be cancelled in status " + withdrawal.getStatus());
         }
@@ -145,7 +155,14 @@ public class WithdrawalService {
         eventService.add(withdrawal, WithdrawalEventType.WITHDRAWAL_CANCELLED, "Withdrawal request cancelled by user");
         withdrawalRepository.save(withdrawal);
         advertisementManager.rebuildPublication();
-        return mapper.toResponse(getRequiredEntity(id));
+        WithdrawalRequestEntity refreshed = getRequiredEntity(id);
+        log.info(
+                "Withdrawal cancelled: id={}, previousStatus={}, amountRub={}",
+                refreshed.getId(),
+                previousStatus,
+                refreshed.getAmountRub()
+        );
+        return mapper.toResponse(refreshed);
     }
 
     @Transactional
@@ -156,7 +173,9 @@ public class WithdrawalService {
         }
         withdrawal.setCompletionSeen(true);
         eventService.add(withdrawal, WithdrawalEventType.COMPLETION_SEEN, "User confirmed completed withdrawal");
-        return mapper.toResponse(withdrawalRepository.save(withdrawal));
+        WithdrawalRequestEntity saved = withdrawalRepository.save(withdrawal);
+        log.debug("Withdrawal completion marked as seen: id={}", saved.getId());
+        return mapper.toResponse(saved);
     }
 
     private WithdrawalRequestEntity getRequiredEntity(Long id) {

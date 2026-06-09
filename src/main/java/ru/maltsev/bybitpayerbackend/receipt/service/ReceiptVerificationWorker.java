@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 @Service
+@Slf4j
 public class ReceiptVerificationWorker {
 
     private final ReceiptMailProperties mailProperties;
@@ -71,6 +73,9 @@ public class ReceiptVerificationWorker {
 
         List<WithdrawalRequestEntity> withdrawals = withdrawalRepository
                 .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.PAYMENT_VERIFICATION);
+        if (!withdrawals.isEmpty()) {
+            log.debug("Withdrawals awaiting receipt verification: count={}", withdrawals.size());
+        }
         for (WithdrawalRequestEntity withdrawal : withdrawals) {
             verifyWithdrawal(withdrawal);
         }
@@ -134,6 +139,11 @@ public class ReceiptVerificationWorker {
         ignored.setPdfFilename(result.attachmentName());
         ignored.setCreatedAt(Instant.now(clock));
         ignoredReceiptRepository.save(ignored);
+        log.debug(
+                "Receipt ignored for withdrawal because phone does not match: withdrawalId={}, receiptKey={}",
+                withdrawal.getId(),
+                result.receiptKey()
+        );
     }
 
     private EmailReceiptCheckEntity saveCheck(WithdrawalRequestEntity withdrawal, TinkoffMailReceiptValidationResult result) {
@@ -183,11 +193,24 @@ public class ReceiptVerificationWorker {
 
             eventService.add(withdrawal, WithdrawalEventType.VERIFICATION_SUCCEEDED, "Receipt verification succeeded");
             eventService.add(withdrawal, WithdrawalEventType.RELEASE_SUCCEEDED, "Bybit order released", "{\"receiptCheckId\":" + check.getId() + "}");
+            log.info(
+                    "Withdrawal completed after receipt verification: withdrawalId={}, orderId={}, receiptCheckId={}",
+                    withdrawal.getId(),
+                    withdrawal.getBybitOrderId(),
+                    check.getId()
+            );
         } catch (Exception exception) {
             withdrawal.setAttentionRequired(true);
             withdrawal.setLastError(exception.getMessage());
             withdrawalRepository.save(withdrawal);
             eventService.add(withdrawal, WithdrawalEventType.RELEASE_FAILED, "Bybit release failed: " + exception.getMessage());
+            log.error(
+                    "Bybit order release failed: withdrawalId={}, orderId={}, message={}",
+                    withdrawal.getId(),
+                    withdrawal.getBybitOrderId(),
+                    exception.getMessage(),
+                    exception
+            );
         }
     }
 
@@ -197,5 +220,10 @@ public class ReceiptVerificationWorker {
         withdrawal.setLastWarning("Найден чек с номером телефона заявки, но данные не совпали: " + reason);
         withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.VERIFICATION_FAILED, "Receipt verification failed: " + reason);
+        log.warn(
+                "Receipt verification failed: withdrawalId={}, orderId={}",
+                withdrawal.getId(),
+                withdrawal.getBybitOrderId()
+        );
     }
 }

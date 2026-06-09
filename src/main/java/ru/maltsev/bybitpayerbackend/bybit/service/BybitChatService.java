@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 @Service
+@Slf4j
 public class BybitChatService {
 
     private static final String HELLO_MESSAGE = "\u041f\u0440\u0438\u0432\u0435\u0442";
@@ -65,10 +67,21 @@ public class BybitChatService {
         if (allSent) {
             withdrawal.setRequisitesSentAt(Instant.now(clock));
             eventService.add(withdrawal, WithdrawalEventType.REQUISITES_SENT, "Requisites sent to Bybit order chat");
+            log.info(
+                    "Bybit chat requisites sent: orderId={}, withdrawalId={}, messages={}",
+                    withdrawal.getBybitOrderId(),
+                    withdrawal.getId(),
+                    messages.size()
+            );
         } else {
             withdrawal.setAttentionRequired(true);
             withdrawal.setLastWarning("Not all chat messages were sent");
             eventService.add(withdrawal, WithdrawalEventType.ATTENTION_REQUIRED, "Not all chat messages were sent");
+            log.warn(
+                    "Bybit chat requisites were not fully sent: orderId={}, withdrawalId={}",
+                    withdrawal.getBybitOrderId(),
+                    withdrawal.getId()
+            );
         }
         withdrawalRepository.save(withdrawal);
     }
@@ -81,28 +94,40 @@ public class BybitChatService {
     }
 
     private boolean createAndSendMessage(WithdrawalRequestEntity withdrawal, int messageIndex, String messageText) {
-        BybitChatMessageLogEntity log = new BybitChatMessageLogEntity();
-        log.setBybitOrderId(withdrawal.getBybitOrderId());
-        log.setWithdrawalRequest(withdrawal);
-        log.setMessageIndex(messageIndex);
-        log.setMessageText(messageText);
-        log.setStatus(ChatMessageStatus.PENDING);
+        BybitChatMessageLogEntity messageLog = new BybitChatMessageLogEntity();
+        messageLog.setBybitOrderId(withdrawal.getBybitOrderId());
+        messageLog.setWithdrawalRequest(withdrawal);
+        messageLog.setMessageIndex(messageIndex);
+        messageLog.setMessageText(messageText);
+        messageLog.setStatus(ChatMessageStatus.PENDING);
         try {
-            log = chatMessageLogRepository.saveAndFlush(log);
+            messageLog = chatMessageLogRepository.saveAndFlush(messageLog);
             bybitGateway.sendChatMessage(withdrawal.getBybitOrderId(), messageIndex, messageText);
-            log.setStatus(ChatMessageStatus.SENT);
-            log.setSentAt(Instant.now(clock));
-            chatMessageLogRepository.save(log);
+            messageLog.setStatus(ChatMessageStatus.SENT);
+            messageLog.setSentAt(Instant.now(clock));
+            chatMessageLogRepository.save(messageLog);
             return true;
         } catch (DataIntegrityViolationException exception) {
+            log.debug(
+                    "Bybit chat message already registered: orderId={}, messageIndex={}",
+                    withdrawal.getBybitOrderId(),
+                    messageIndex
+            );
             return chatMessageLogRepository
                     .findByBybitOrderIdAndMessageIndex(withdrawal.getBybitOrderId(), messageIndex)
                     .map(existing -> existing.getStatus() == ChatMessageStatus.SENT)
                     .orElse(false);
         } catch (Exception exception) {
-            log.setStatus(ChatMessageStatus.FAILED);
-            log.setError(exception.getMessage());
-            chatMessageLogRepository.save(log);
+            messageLog.setStatus(ChatMessageStatus.FAILED);
+            messageLog.setError(exception.getMessage());
+            chatMessageLogRepository.save(messageLog);
+            log.warn(
+                    "Bybit chat message failed: orderId={}, withdrawalId={}, messageIndex={}, message={}",
+                    withdrawal.getBybitOrderId(),
+                    withdrawal.getId(),
+                    messageIndex,
+                    exception.getMessage()
+            );
             return false;
         }
     }
@@ -116,6 +141,7 @@ public class BybitChatService {
             Thread.sleep(delayMillis);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            log.warn("Bybit chat message delay interrupted");
         }
     }
 }

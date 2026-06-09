@@ -23,8 +23,7 @@ import javax.crypto.spec.SecretKeySpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -32,13 +31,12 @@ import org.springframework.util.StringUtils;
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 
 @Component
+@Slf4j
 @ConditionalOnProperty(prefix = "bybit", name = "enabled", havingValue = "true")
 public class HttpBybitGateway implements BybitGateway {
 
-    private static final Logger log = LoggerFactory.getLogger(HttpBybitGateway.class);
     private static final String HMAC_SHA256 = "HmacSHA256";
     private static final String SELLER_CANCEL_ENDPOINT = "/fiat/otc/order/seller/proposal/cancelOrder";
-    private static final int MAX_LOG_PAYLOAD_LENGTH = 20_000;
     private static final int AD_STATUS_ONLINE = 10;
     private static final int ORDER_STATUS_WAITING_BUYER_PAY = 10;
     private static final int ORDER_STATUS_WAITING_SELLER_RELEASE = 20;
@@ -76,7 +74,6 @@ public class HttpBybitGateway implements BybitGateway {
     @Override
     public BybitReadiness checkReadiness() {
         if (!isConfigured()) {
-            log.warn("Bybit readiness check failed: configuration is incomplete");
             return new BybitReadiness(
                     false,
                     "CONFIG_MISSING",
@@ -84,17 +81,14 @@ public class HttpBybitGateway implements BybitGateway {
                     null
             );
         }
-        log.info("Bybit readiness check started: env={}, baseUrl={}", properties.getEnv(), baseUrl());
         BigDecimal availableUsdt = null;
         try {
             availableUsdt = fetchAvailableUsdtBalance();
             if (StringUtils.hasText(properties.getP2pAdId())) {
                 getManagedAdDetails(properties.getP2pAdId());
             }
-            log.info("Bybit readiness check completed successfully");
             return new BybitReadiness(true, "HTTP", "Bybit HTTP gateway is available", availableUsdt);
         } catch (Exception exception) {
-            log.error("Bybit readiness check failed: message={}", exception.getMessage(), exception);
             return new BybitReadiness(false, "HTTP", exception.getMessage(), availableUsdt);
         }
     }
@@ -287,50 +281,25 @@ public class HttpBybitGateway implements BybitGateway {
         int attempts = Math.max(1, properties.getRetryMaxAttempts());
         RuntimeException lastException = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
-            log.info(
-                    "Bybit API request attempt started: method={}, path={}, attempt={}, maxAttempts={}",
-                    method,
-                    path,
-                    attempt,
-                    attempts
-            );
             try {
-                JsonNode result = send(method, path, queryString, bodyJson);
-                log.info(
-                        "Bybit API request attempt completed: method={}, path={}, attempt={}",
-                        method,
-                        path,
-                        attempt
-                );
-                return result;
+                return send(method, path, queryString, bodyJson);
             } catch (RuntimeException exception) {
                 lastException = exception;
                 boolean retryable = isRetryable(exception);
+                if (attempt == attempts || !retryable) {
+                    break;
+                }
                 log.warn(
-                        "Bybit API request attempt failed: method={}, path={}, attempt={}, maxAttempts={}, retryable={}, exceptionType={}, message={}",
+                        "Bybit API request failed, retrying: method={}, path={}, attempt={}, maxAttempts={}, message={}",
                         method,
                         path,
                         attempt,
                         attempts,
-                        retryable,
-                        exception.getClass().getSimpleName(),
                         exception.getMessage()
                 );
-                if (attempt == attempts || !retryable) {
-                    break;
-                }
-                log.info("Bybit API request retry scheduled: method={}, path={}, failedAttempt={}", method, path, attempt);
                 sleepBeforeRetry(attempt);
             }
         }
-        log.error(
-                "Bybit API request failed permanently: method={}, path={}, attempts={}, message={}",
-                method,
-                path,
-                attempts,
-                lastException == null ? null : lastException.getMessage(),
-                lastException
-        );
         throw lastException == null ? new BybitApiException("Bybit request failed") : lastException;
     }
 
@@ -338,42 +307,24 @@ public class HttpBybitGateway implements BybitGateway {
         int attempts = Math.max(1, properties.getRetryMaxAttempts());
         RuntimeException lastException = null;
         for (int attempt = 1; attempt <= attempts; attempt++) {
-            log.info(
-                    "Bybit web API request attempt started: path={}, attempt={}, maxAttempts={}",
-                    path,
-                    attempt,
-                    attempts
-            );
             try {
-                JsonNode result = sendWebSession(path, bodyJson);
-                log.info("Bybit web API request attempt completed: path={}, attempt={}", path, attempt);
-                return result;
+                return sendWebSession(path, bodyJson);
             } catch (RuntimeException exception) {
                 lastException = exception;
                 boolean retryable = isRetryable(exception);
-                log.warn(
-                        "Bybit web API request attempt failed: path={}, attempt={}, maxAttempts={}, retryable={}, exceptionType={}, message={}",
-                        path,
-                        attempt,
-                        attempts,
-                        retryable,
-                        exception.getClass().getSimpleName(),
-                        exception.getMessage()
-                );
                 if (attempt == attempts || !retryable) {
                     break;
                 }
-                log.info("Bybit web API request retry scheduled: path={}, failedAttempt={}", path, attempt);
+                log.warn(
+                        "Bybit web API request failed, retrying: path={}, attempt={}, maxAttempts={}, message={}",
+                        path,
+                        attempt,
+                        attempts,
+                        exception.getMessage()
+                );
                 sleepBeforeRetry(attempt);
             }
         }
-        log.error(
-                "Bybit web API request failed permanently: path={}, attempts={}, message={}",
-                path,
-                attempts,
-                lastException == null ? null : lastException.getMessage(),
-                lastException
-        );
         throw lastException == null ? new BybitApiException("Bybit web request failed") : lastException;
     }
 
@@ -401,31 +352,23 @@ public class HttpBybitGateway implements BybitGateway {
                     .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8));
         }
 
-        log.info(
-                "Sending Bybit API request: method={}, path={}, query={}, body={}",
-                method,
-                path,
-                queryString,
-                logPayload(bodyJson)
-        );
         long startedAtNanos = System.nanoTime();
         try {
             HttpResponse<String> response = httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             long durationMs = Duration.ofNanos(System.nanoTime() - startedAtNanos).toMillis();
-            log.info(
-                    "Received Bybit API response: method={}, path={}, status={}, durationMs={}, body={}",
+            log.debug(
+                    "Bybit API request completed: method={}, path={}, status={}, durationMs={}",
                     method,
                     path,
                     response.statusCode(),
-                    durationMs,
-                    logPayload(response.body())
+                    durationMs
             );
             if (response.statusCode() >= 400) {
                 boolean retryable = response.statusCode() == 429 || response.statusCode() >= 500;
                 throw new BybitApiException("Bybit HTTP " + response.statusCode() + " for " + path, retryable);
             }
             JsonNode root = objectMapper.readTree(response.body());
-            assertSuccess(root, path, "GET".equals(method) ? queryString : bodyJson);
+            assertSuccess(root, path);
             return root.path("result");
         } catch (IOException exception) {
             throw new BybitApiException("Bybit request failed for " + path, exception, true);
@@ -451,24 +394,22 @@ public class HttpBybitGateway implements BybitGateway {
                 .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
                 .build();
 
-        log.info("Sending Bybit web API request: path={}, body={}", path, logPayload(bodyJson));
         long startedAtNanos = System.nanoTime();
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             long durationMs = Duration.ofNanos(System.nanoTime() - startedAtNanos).toMillis();
-            log.info(
-                    "Received Bybit web API response: path={}, status={}, durationMs={}, body={}",
+            log.debug(
+                    "Bybit web API request completed: path={}, status={}, durationMs={}",
                     path,
                     response.statusCode(),
-                    durationMs,
-                    logPayload(response.body())
+                    durationMs
             );
             if (response.statusCode() >= 400) {
                 boolean retryable = response.statusCode() == 429 || response.statusCode() >= 500;
                 throw new BybitApiException("Bybit web HTTP " + response.statusCode() + " for " + path, retryable);
             }
             JsonNode root = objectMapper.readTree(response.body());
-            assertSuccess(root, path, bodyJson);
+            assertSuccess(root, path);
             return root.path("result");
         } catch (IOException exception) {
             throw new BybitApiException("Bybit web request failed for " + path, exception, true);
@@ -482,27 +423,15 @@ public class HttpBybitGateway implements BybitGateway {
         return exception instanceof BybitApiException bybitException && bybitException.isRetryable();
     }
 
-    private void assertSuccess(JsonNode root, String path, String requestPayload) {
+    private void assertSuccess(JsonNode root, String path) {
         JsonNode retCodeNode = root.has("retCode") ? root.path("retCode") : root.path("ret_code");
         if (retCodeNode.isMissingNode() || retCodeNode.asInt(-1) == 0) {
             return;
         }
 
         String retMsg = root.has("retMsg") ? root.path("retMsg").asText() : root.path("ret_msg").asText();
-        JsonNode retExtInfo = root.has("retExtInfo") ? root.path("retExtInfo") : root.path("ext_info");
-        log.error(
-                "Bybit API returned an error: path={}, retCode={}, retMsg={}, request={}, retExtInfo={}, response={}",
-                path,
-                retCodeNode.asText(),
-                retMsg,
-                logPayload(requestPayload),
-                logPayload(retExtInfo.toString()),
-                logPayload(root.toString())
-        );
         throw new BybitApiException(
                 "Bybit API error for " + path + ": " + retCodeNode.asText() + " " + retMsg
-                        + "; request=" + logPayload(requestPayload)
-                        + "; retExtInfo=" + logPayload(retExtInfo.toString())
         );
     }
 
@@ -542,7 +471,6 @@ public class HttpBybitGateway implements BybitGateway {
     private void sleepBeforeRetry(int attempt) {
         List<Integer> backoffs = properties.getRetryBackoffSeconds();
         int seconds = backoffs.isEmpty() ? attempt : backoffs.get(Math.min(attempt - 1, backoffs.size() - 1));
-        log.info("Waiting before Bybit API retry: failedAttempt={}, backoffSeconds={}", attempt, Math.max(1, seconds));
         try {
             Thread.sleep(Duration.ofSeconds(Math.max(1, seconds)).toMillis());
         } catch (InterruptedException exception) {
@@ -608,19 +536,15 @@ public class HttpBybitGateway implements BybitGateway {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() >= 400) {
-                log.warn(
-                        "Bybit server time request failed, using local time: status={}, body={}",
-                        response.statusCode(),
-                        logPayload(response.body())
+                log.debug(
+                        "Bybit server time request failed, using local time: status={}",
+                        response.statusCode()
                 );
                 return localTime;
             }
             JsonNode root = objectMapper.readTree(response.body());
             if (root.path("retCode").asInt(-1) != 0) {
-                log.warn(
-                        "Bybit server time response contains an error, using local time: body={}",
-                        logPayload(response.body())
-                );
+                log.debug("Bybit server time response contains an error, using local time");
                 return localTime;
             }
             if (root.path("time").asLong(0) > 0) {
@@ -637,7 +561,7 @@ public class HttpBybitGateway implements BybitGateway {
             }
             return localTime;
         } catch (Exception exception) {
-            log.warn("Bybit server time request failed, using local time: message={}", exception.getMessage());
+            log.debug("Bybit server time request failed, using local time: message={}", exception.getMessage());
             return localTime;
         }
     }
@@ -748,14 +672,4 @@ public class HttpBybitGateway implements BybitGateway {
         return value.stripTrailingZeros().toPlainString();
     }
 
-    private String logPayload(String payload) {
-        if (!StringUtils.hasText(payload)) {
-            return "";
-        }
-        if (payload.length() <= MAX_LOG_PAYLOAD_LENGTH) {
-            return payload;
-        }
-        return payload.substring(0, MAX_LOG_PAYLOAD_LENGTH)
-                + "... [truncated, originalLength=" + payload.length() + "]";
-    }
 }

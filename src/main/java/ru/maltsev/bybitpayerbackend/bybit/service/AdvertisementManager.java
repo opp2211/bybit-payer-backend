@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -30,6 +31,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 @Service
+@Slf4j
 public class AdvertisementManager {
 
     private static final String AD_DESCRIPTION_TEMPLATE = "Только Т-банк! ___ Заходите только на сумму %s руб.  - другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП ___ Понадобится чек с офф. почты банка мне на почту";
@@ -75,7 +77,25 @@ public class AdvertisementManager {
             AdvertisementSnapshot snapshot = buildSnapshot(published);
             ensureBalance(snapshot);
             persistAndPushAdState(snapshot, now);
+            log.info(
+                    "Managed advertisement synchronized: published={}, candidates={}, publishedWithdrawals={}, rate={}, quantityUsdt={}",
+                    snapshot.published(),
+                    candidates.size(),
+                    published.size(),
+                    snapshot.rate(),
+                    snapshot.quantityUsdt()
+            );
             return snapshot;
+        } catch (BusinessException exception) {
+            log.warn(
+                    "Managed advertisement synchronization rejected: message={}, details={}",
+                    exception.getMessage(),
+                    exception.getDetails()
+            );
+            throw exception;
+        } catch (RuntimeException exception) {
+            log.error("Managed advertisement synchronization failed: {}", exception.getMessage(), exception);
+            throw exception;
         } finally {
             lock.unlock();
         }

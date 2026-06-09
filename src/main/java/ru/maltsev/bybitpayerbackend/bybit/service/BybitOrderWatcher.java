@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,6 +21,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 @Service
+@Slf4j
 public class BybitOrderWatcher {
 
     private final BybitGateway bybitGateway;
@@ -55,6 +57,9 @@ public class BybitOrderWatcher {
     @Transactional
     public void pollActiveOrders() {
         List<BybitP2pOrder> orders = bybitGateway.fetchActiveOrders();
+        if (!orders.isEmpty()) {
+            log.debug("Active Bybit orders fetched: count={}", orders.size());
+        }
         for (BybitP2pOrder order : orders) {
             processOrder(order);
         }
@@ -78,6 +83,11 @@ public class BybitOrderWatcher {
             withdrawalRepository.save(withdrawal);
             eventService.add(withdrawal, WithdrawalEventType.ORDER_PAID, "Bybit order marked as paid");
             eventService.add(withdrawal, WithdrawalEventType.MAIL_CHECK_STARTED, "Mail verification started");
+            log.info(
+                    "Bybit order marked as paid: orderId={}, withdrawalId={}",
+                    order.bybitOrderId(),
+                    withdrawal.getId()
+            );
         }
     }
 
@@ -111,5 +121,11 @@ public class BybitOrderWatcher {
         eventService.add(withdrawal, WithdrawalEventType.ORDER_FOUND, "Bybit order matched withdrawal");
         advertisementManager.rebuildPublication();
         chatService.sendRequisites(withdrawal);
+        log.info(
+                "Bybit order bound to withdrawal: orderId={}, withdrawalId={}, amountRub={}",
+                order.bybitOrderId(),
+                withdrawal.getId(),
+                order.amountRub()
+        );
     }
 }

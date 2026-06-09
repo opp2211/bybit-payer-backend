@@ -3,7 +3,9 @@ package ru.maltsev.bybitpayerbackend.bybit.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +18,7 @@ import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalMapper;
 
 @Service
+@Slf4j
 public class ForeignBybitOrderService {
 
     private final ForeignBybitOrderRepository repository;
@@ -38,8 +41,11 @@ public class ForeignBybitOrderService {
     @Transactional
     public ForeignBybitOrderEntity upsert(BybitP2pOrder order, String reason) {
         Instant now = Instant.now(clock);
-        ForeignBybitOrderEntity entity = repository.findByBybitOrderId(order.bybitOrderId())
-                .orElseGet(() -> newForeignOrder(order, now));
+        var existing = repository.findByBybitOrderId(order.bybitOrderId());
+        boolean created = existing.isEmpty();
+        ForeignBybitOrderEntity entity = existing.orElseGet(() -> newForeignOrder(order, now));
+        String previousStatus = entity.getBybitStatus();
+        String previousReason = entity.getReason();
         entity.setAmountRub(order.amountRub());
         entity.setBybitStatus(order.status());
         entity.setReason(reason);
@@ -49,7 +55,25 @@ public class ForeignBybitOrderService {
         if (order.paid()) {
             requestCancel(entity, now);
         }
-        return repository.save(entity);
+        ForeignBybitOrderEntity saved = repository.save(entity);
+        if (created) {
+            log.warn(
+                    "Foreign Bybit order detected: orderId={}, amountRub={}, status={}, reason={}",
+                    saved.getBybitOrderId(),
+                    saved.getAmountRub(),
+                    saved.getBybitStatus(),
+                    saved.getReason()
+            );
+        } else if (!Objects.equals(previousStatus, saved.getBybitStatus())
+                || !Objects.equals(previousReason, saved.getReason())) {
+            log.info(
+                    "Foreign Bybit order updated: orderId={}, status={}, reason={}",
+                    saved.getBybitOrderId(),
+                    saved.getBybitStatus(),
+                    saved.getReason()
+            );
+        }
+        return saved;
     }
 
     @Transactional(readOnly = true)
@@ -78,15 +102,39 @@ public class ForeignBybitOrderService {
     }
 
     private void requestCancel(ForeignBybitOrderEntity entity, Instant now) {
+        boolean alreadyRequested = entity.isCancelRequested();
+        String previousError = entity.getLastError();
         try {
             bybitGateway.requestCancel(entity.getBybitOrderId());
             entity.setCancelRequested(true);
             entity.setCancelRequestedAt(now);
             entity.setCancelRequestAttempts(entity.getCancelRequestAttempts() + 1);
             entity.setLastError(null);
+            if (!alreadyRequested) {
+                log.info(
+                        "Foreign Bybit order cancellation requested: orderId={}, attempt={}",
+                        entity.getBybitOrderId(),
+                        entity.getCancelRequestAttempts()
+                );
+            }
         } catch (Exception exception) {
             entity.setCancelRequestAttempts(entity.getCancelRequestAttempts() + 1);
             entity.setLastError(exception.getMessage());
+            if (entity.getCancelRequestAttempts() == 1
+                    || !Objects.equals(previousError, exception.getMessage())) {
+                log.warn(
+                        "Foreign Bybit order cancellation failed: orderId={}, attempt={}, message={}",
+                        entity.getBybitOrderId(),
+                        entity.getCancelRequestAttempts(),
+                        exception.getMessage()
+                );
+            } else {
+                log.debug(
+                        "Foreign Bybit order cancellation still failing: orderId={}, attempt={}",
+                        entity.getBybitOrderId(),
+                        entity.getCancelRequestAttempts()
+                );
+            }
         }
     }
 }

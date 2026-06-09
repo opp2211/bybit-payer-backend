@@ -3,8 +3,10 @@ package ru.maltsev.bybitpayerbackend.system.service;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +20,7 @@ import ru.maltsev.bybitpayerbackend.receipt.config.ReceiptMailProperties;
 import ru.maltsev.bybitpayerbackend.system.dto.SystemStatusResponse;
 
 @Service
+@Slf4j
 public class SystemStatusService {
 
     private final AdvertisementManager advertisementManager;
@@ -84,27 +87,32 @@ public class SystemStatusService {
             BigDecimal availableUsdt = readiness.availableUsdtBalance() == null
                     ? previous.availableUsdtBalance()
                     : readiness.availableUsdtBalance();
-            bybitStatus.set(new BybitStatusSnapshot(
+            BybitStatusSnapshot current = new BybitStatusSnapshot(
                     readiness.available(),
                     readiness.mode(),
                     availableUsdt,
                     readiness.available() ? null : readiness.message(),
                     checkedAt
-            ));
+            );
+            bybitStatus.set(current);
+            logStatusChange(previous, current);
         } catch (Exception exception) {
-            bybitStatus.set(new BybitStatusSnapshot(
+            BybitStatusSnapshot current = new BybitStatusSnapshot(
                     false,
                     previous.mode(),
                     previous.availableUsdtBalance(),
                     exception.getMessage(),
                     checkedAt
-            ));
+            );
+            bybitStatus.set(current);
+            logStatusChange(previous, current);
         }
     }
 
     @Transactional
     public SystemStatusResponse resync() {
         advertisementManager.rebuildPublication();
+        log.info("System resync completed");
         return getStatus();
     }
 
@@ -112,6 +120,30 @@ public class SystemStatusService {
         return mailProperties.isEnabled()
                 && StringUtils.hasText(mailProperties.getUsername())
                 && StringUtils.hasText(mailProperties.getPassword());
+    }
+
+    private void logStatusChange(BybitStatusSnapshot previous, BybitStatusSnapshot current) {
+        boolean firstCheck = previous.checkedAt() == null;
+        boolean availabilityChanged = previous.available() != current.available();
+        boolean detailsChanged = !Objects.equals(previous.mode(), current.mode())
+                || !Objects.equals(previous.lastError(), current.lastError());
+        if (!firstCheck && !availabilityChanged && !detailsChanged) {
+            return;
+        }
+
+        if (current.available()) {
+            log.info(
+                    "Bybit status is available: mode={}, balanceUsdt={}",
+                    current.mode(),
+                    current.availableUsdtBalance()
+            );
+        } else {
+            log.warn(
+                    "Bybit status is unavailable: mode={}, message={}",
+                    current.mode(),
+                    current.lastError()
+            );
+        }
     }
 
     private record BybitStatusSnapshot(

@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +16,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 
 @Service
+@Slf4j
 public class AttentionWatcher {
 
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -66,5 +68,11 @@ public class AttentionWatcher {
         withdrawal.setLastWarning(warning);
         withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.ATTENTION_REQUIRED, warning);
+        log.warn(
+                "Withdrawal requires attention: id={}, status={}, warning={}",
+                withdrawal.getId(),
+                withdrawal.getStatus(),
+                warning
+        );
     }
 }
