@@ -6,6 +6,8 @@ import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -123,6 +125,55 @@ class HttpBybitGatewayTests {
             assertThat(order.quantityUsdt()).isEqualByComparingTo("108.25");
             assertThat(order.feeUsdt()).isEqualByComparingTo("0.30");
             assertThat(order.totalUsdt()).isEqualByComparingTo("108.55");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void readsOrderChatMessages() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v5/market/time", exchange -> respond(exchange, """
+                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
+                """));
+        server.createContext("/v5/p2p/order/message/listpage", exchange -> respond(exchange, """
+                {
+                  "ret_code": 0,
+                  "ret_msg": "SUCCESS",
+                  "result": {
+                    "result": [
+                      {
+                        "id": "3000835348",
+                        "message": "Здравствуйте",
+                        "msgType": 1,
+                        "createDate": "1741763625000",
+                        "contentType": "str",
+                        "userId": "290118",
+                        "orderId": "order-123",
+                        "msgUuid": "",
+                        "nickName": "Покупатель",
+                        "roleType": "user"
+                      }
+                    ]
+                  }
+                }
+                """));
+        server.start();
+
+        try {
+            BybitProperties properties = properties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setApiKey("test-api-key");
+            properties.setApiSecret("test-api-secret");
+            properties.setP2pAdId("ad-123");
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+
+            List<BybitChatMessage> messages = gateway.fetchChatMessages("order-123");
+
+            assertThat(messages).hasSize(1);
+            assertThat(messages.getFirst().message()).isEqualTo("Здравствуйте");
+            assertThat(messages.getFirst().nickname()).isEqualTo("Покупатель");
+            assertThat(messages.getFirst().createdAt()).isEqualTo(Instant.ofEpochMilli(1741763625000L));
         } finally {
             server.stop(0);
         }

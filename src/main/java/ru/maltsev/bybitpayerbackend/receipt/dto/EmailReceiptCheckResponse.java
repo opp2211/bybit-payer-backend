@@ -11,6 +11,7 @@ public record EmailReceiptCheckResponse(
         String emailSubject,
         Instant emailReceivedAt,
         String pdfFilename,
+        boolean pdfAvailable,
         String parsedStatus,
         BigDecimal parsedAmountRub,
         String parsedRecipientPhone,

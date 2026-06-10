@@ -16,11 +16,12 @@ import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
-import ru.maltsev.bybitpayerbackend.bybit.repository.BybitChatMessageLogRepository;
 import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementManager;
+import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
+import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
@@ -37,7 +38,7 @@ public class WithdrawalService {
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventRepository eventRepository;
-    private final BybitChatMessageLogRepository chatMessageLogRepository;
+    private final BybitChatService chatService;
     private final EmailReceiptCheckRepository receiptCheckRepository;
     private final BybitOrderBindingRepository bindingRepository;
     private final WithdrawalInputNormalizer normalizer;
@@ -102,9 +103,7 @@ public class WithdrawalService {
                 eventRepository.findByWithdrawalRequest_IdOrderByCreatedAtAscIdAsc(id).stream()
                         .map(mapper::toEventResponse)
                         .toList(),
-                chatMessageLogRepository.findByWithdrawalRequest_IdOrderByMessageIndexAsc(id).stream()
-                        .map(mapper::toChatMessageResponse)
-                        .toList(),
+                chatService.getMessages(withdrawal),
                 receiptCheckRepository.findByWithdrawalRequest_IdOrderByCreatedAtDescIdDesc(id).stream()
                         .map(mapper::toReceiptCheckResponse)
                         .toList()
@@ -191,6 +190,17 @@ public class WithdrawalService {
                 saved.getBybitOrderId()
         );
         return mapper.toResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public EmailReceiptCheckEntity getReceiptPdf(Long withdrawalId, Long receiptId) {
+        EmailReceiptCheckEntity receipt = receiptCheckRepository
+                .findByIdAndWithdrawalRequest_Id(receiptId, withdrawalId)
+                .orElseThrow(() -> new EntityNotFoundException("Receipt PDF not found: " + receiptId));
+        if (receipt.getPdfContent() == null || receipt.getPdfContent().length == 0) {
+            throw new EntityNotFoundException("Receipt PDF content is not available: " + receiptId);
+        }
+        return receipt;
     }
 
     private WithdrawalRequestEntity getRequiredEntity(Long id) {

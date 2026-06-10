@@ -2,17 +2,26 @@ package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
+import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitChatMessageLogEntity;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.model.ChatMessageStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitChatMessageLogRepository;
+import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
@@ -86,6 +95,83 @@ public class BybitChatService {
         withdrawalRepository.save(withdrawal);
     }
 
+    @Transactional
+    public void sendMessage(Long withdrawalId, String rawMessage) {
+        WithdrawalRequestEntity withdrawal = withdrawalRepository.findById(withdrawalId)
+                .orElseThrow(() -> BusinessException.conflict("Заявка не найдена"));
+        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            throw BusinessException.conflict("К заявке ещё не привязан Bybit-ордер");
+        }
+
+        String message = rawMessage.trim();
+        int messageIndex = chatMessageLogRepository
+                .findTopByBybitOrderIdOrderByMessageIndexDesc(withdrawal.getBybitOrderId())
+                .map(existing -> existing.getMessageIndex() + 1)
+                .orElse(1);
+        if (!createAndSendMessage(withdrawal, messageIndex, message)) {
+            throw BusinessException.conflict("Не удалось отправить сообщение в чат Bybit");
+        }
+        eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator");
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChatMessageLogResponse> getMessages(WithdrawalRequestEntity withdrawal) {
+        List<BybitChatMessageLogEntity> localMessages =
+                chatMessageLogRepository.findByWithdrawalRequest_IdOrderByMessageIndexAsc(withdrawal.getId());
+        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            return localMessages.stream().map(this::toLocalResponse).toList();
+        }
+
+        List<BybitChatMessage> remoteMessages;
+        try {
+            remoteMessages = bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId());
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "Bybit chat history is temporarily unavailable: withdrawalId={}, orderId={}, message={}",
+                    withdrawal.getId(),
+                    withdrawal.getBybitOrderId(),
+                    exception.getMessage()
+            );
+            return localMessages.stream().map(this::toLocalResponse).toList();
+        }
+
+        Set<Long> matchedLocalIds = new HashSet<>();
+        List<ChatMessageLogResponse> result = new ArrayList<>();
+        for (BybitChatMessage remote : remoteMessages) {
+            BybitChatMessageLogEntity local = findLocalMessage(remote, localMessages, matchedLocalIds);
+            if (local != null) {
+                matchedLocalIds.add(local.getId());
+            }
+            String direction = remote.system() ? "SYSTEM" : local == null ? "INCOMING" : "OUTGOING";
+            String author = switch (direction) {
+                case "SYSTEM" -> "Bybit";
+                case "OUTGOING" -> "Вы";
+                default -> StringUtils.hasText(remote.nickname()) ? remote.nickname() : "Контрагент";
+            };
+            result.add(new ChatMessageLogResponse(
+                    "bybit:" + remote.id(),
+                    remote.orderId(),
+                    local == null ? null : local.getMessageIndex(),
+                    remote.message(),
+                    direction,
+                    author,
+                    remote.contentType(),
+                    "SENT",
+                    remote.createdAt(),
+                    null
+            ));
+        }
+        localMessages.stream()
+                .filter(local -> !matchedLocalIds.contains(local.getId()))
+                .map(this::toLocalResponse)
+                .forEach(result::add);
+        result.sort(Comparator.comparing(
+                ChatMessageLogResponse::createdAt,
+                Comparator.nullsLast(Comparator.naturalOrder())
+        ));
+        return List.copyOf(result);
+    }
+
     private boolean sendMessageIfNeeded(WithdrawalRequestEntity withdrawal, int messageIndex, String messageText) {
         return chatMessageLogRepository
                 .findByBybitOrderIdAndMessageIndex(withdrawal.getBybitOrderId(), messageIndex)
@@ -99,10 +185,15 @@ public class BybitChatService {
         messageLog.setWithdrawalRequest(withdrawal);
         messageLog.setMessageIndex(messageIndex);
         messageLog.setMessageText(messageText);
+        messageLog.setClientMessageId(clientMessageId(withdrawal.getBybitOrderId(), messageIndex));
         messageLog.setStatus(ChatMessageStatus.PENDING);
         try {
             messageLog = chatMessageLogRepository.saveAndFlush(messageLog);
-            bybitGateway.sendChatMessage(withdrawal.getBybitOrderId(), messageIndex, messageText);
+            bybitGateway.sendChatMessage(
+                    withdrawal.getBybitOrderId(),
+                    messageLog.getClientMessageId(),
+                    messageText
+            );
             messageLog.setStatus(ChatMessageStatus.SENT);
             messageLog.setSentAt(Instant.now(clock));
             chatMessageLogRepository.save(messageLog);
@@ -130,6 +221,54 @@ public class BybitChatService {
             );
             return false;
         }
+    }
+
+    private BybitChatMessageLogEntity findLocalMessage(
+            BybitChatMessage remote,
+            List<BybitChatMessageLogEntity> localMessages,
+            Set<Long> matchedLocalIds
+    ) {
+        for (BybitChatMessageLogEntity local : localMessages) {
+            if (matchedLocalIds.contains(local.getId())) {
+                continue;
+            }
+            String expectedMessageId = StringUtils.hasText(local.getClientMessageId())
+                    ? local.getClientMessageId()
+                    : clientMessageId(local.getBybitOrderId(), local.getMessageIndex());
+            if (expectedMessageId.equals(remote.messageUuid())) {
+                return local;
+            }
+        }
+        if (!StringUtils.hasText(remote.messageUuid())) {
+            for (BybitChatMessageLogEntity local : localMessages) {
+                if (!matchedLocalIds.contains(local.getId())
+                        && local.getStatus() == ChatMessageStatus.SENT
+                        && local.getMessageText().equals(remote.message())) {
+                    return local;
+                }
+            }
+        }
+        return null;
+    }
+
+    private ChatMessageLogResponse toLocalResponse(BybitChatMessageLogEntity message) {
+        return new ChatMessageLogResponse(
+                "local:" + message.getId(),
+                message.getBybitOrderId(),
+                message.getMessageIndex(),
+                message.getMessageText(),
+                "OUTGOING",
+                "Вы",
+                "str",
+                message.getStatus().name(),
+                message.getSentAt(),
+                message.getError()
+        );
+    }
+
+    private String clientMessageId(String bybitOrderId, int messageIndex) {
+        return UUID.nameUUIDFromBytes((bybitOrderId + ":" + messageIndex).getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .toString();
     }
 
     private void sleepBetweenMessages() {

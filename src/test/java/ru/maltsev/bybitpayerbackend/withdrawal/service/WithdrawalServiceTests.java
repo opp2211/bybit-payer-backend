@@ -19,6 +19,7 @@ import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitChatMessageLogRepository;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementManager;
+import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
@@ -54,7 +55,7 @@ class WithdrawalServiceTests {
         WithdrawalService service = new WithdrawalService(
                 withdrawalRepository,
                 mock(WithdrawalEventRepository.class),
-                mock(BybitChatMessageLogRepository.class),
+                mock(BybitChatService.class),
                 mock(EmailReceiptCheckRepository.class),
                 bindingRepository,
                 mock(WithdrawalInputNormalizer.class),

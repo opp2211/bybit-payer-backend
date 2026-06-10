@@ -177,6 +177,7 @@ class ReceiptVerificationWorkerTests {
                 "noreply@tinkoff.ru",
                 NOW,
                 "receipt.pdf",
+                new byte[]{1, 2, 3},
                 new TinkoffReceiptData(
                         amount,
                         "Успешно",

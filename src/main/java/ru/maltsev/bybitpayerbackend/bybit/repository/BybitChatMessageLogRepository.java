@@ -12,4 +12,6 @@ public interface BybitChatMessageLogRepository extends JpaRepository<BybitChatMe
     Optional<BybitChatMessageLogEntity> findByBybitOrderIdAndMessageIndex(String bybitOrderId, int messageIndex);
 
     List<BybitChatMessageLogEntity> findByWithdrawalRequest_IdOrderByMessageIndexAsc(Long withdrawalRequestId);
+
+    Optional<BybitChatMessageLogEntity> findTopByBybitOrderIdOrderByMessageIndexDesc(String bybitOrderId);
 }

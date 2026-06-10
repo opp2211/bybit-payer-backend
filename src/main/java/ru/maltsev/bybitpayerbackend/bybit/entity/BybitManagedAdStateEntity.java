@@ -45,6 +45,9 @@ public class BybitManagedAdStateEntity {
     @Column(name = "reference_rate_7_with_fee", precision = 19, scale = 8)
     private BigDecimal referenceRate7WithFee;
 
+    @Column(name = "reference_rate_15", precision = 19, scale = 8)
+    private BigDecimal referenceRate15;
+
     @Column(name = "last_min_rub", precision = 19, scale = 0)
     private BigDecimal lastMinRub;
 

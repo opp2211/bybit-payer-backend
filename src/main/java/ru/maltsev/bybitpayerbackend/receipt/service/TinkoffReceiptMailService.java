@@ -155,6 +155,7 @@ public class TinkoffReceiptMailService {
                 metadata.from(),
                 metadata.receivedAt(),
                 attachment.fileName(),
+                attachment.content(),
                 validationResult.receipt(),
                 validationResult.errors()
         );

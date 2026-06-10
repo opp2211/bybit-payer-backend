@@ -53,6 +53,9 @@ public class EmailReceiptCheckEntity {
     @Column(name = "pdf_filename")
     private String pdfFilename;
 
+    @Column(name = "pdf_content")
+    private byte[] pdfContent;
+
     @Column(name = "parsed_status", length = 128)
     private String parsedStatus;
 

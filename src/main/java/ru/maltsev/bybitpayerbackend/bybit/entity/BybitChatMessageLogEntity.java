@@ -43,6 +43,9 @@ public class BybitChatMessageLogEntity {
     @Column(name = "message_text", nullable = false)
     private String messageText;
 
+    @Column(name = "client_message_id", length = 64)
+    private String clientMessageId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 48)
     private ChatMessageStatus status;

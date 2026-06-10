@@ -18,11 +18,13 @@ public interface BybitGateway {
 
     Optional<BybitP2pOrder> fetchOrder(String bybitOrderId);
 
+    List<BybitChatMessage> fetchChatMessages(String bybitOrderId);
+
     void updateManagedAd(AdUpdateCommand command);
 
     void unpublishManagedAd(String bybitAdId);
 
-    void sendChatMessage(String bybitOrderId, int messageIndex, String messageText);
+    void sendChatMessage(String bybitOrderId, String messageUuid, String messageText);
 
     void releaseOrder(String bybitOrderId);
 }

@@ -11,13 +11,13 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -190,6 +190,36 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     @Override
+    public List<BybitChatMessage> fetchChatMessages(String bybitOrderId) {
+        if (!StringUtils.hasText(bybitOrderId)) {
+            return List.of();
+        }
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("orderId", bybitOrderId);
+        request.put("currentPage", "1");
+        request.put("size", "30");
+        JsonNode messages = post("/v5/p2p/order/message/listpage", request).path("result");
+        if (!messages.isArray()) {
+            return List.of();
+        }
+
+        List<BybitChatMessage> result = new ArrayList<>();
+        messages.forEach(item -> result.add(new BybitChatMessage(
+                item.path("id").asText(),
+                item.path("message").asText(),
+                item.path("userId").asText(),
+                item.path("msgType").asInt(),
+                instantFromMillis(item.path("createDate").asText()),
+                item.path("contentType").asText("str"),
+                item.path("orderId").asText(bybitOrderId),
+                item.path("msgUuid").asText(),
+                item.path("nickName").asText(),
+                item.path("roleType").asText()
+        )));
+        return List.copyOf(result);
+    }
+
+    @Override
     public void updateManagedAd(AdUpdateCommand command) {
         if (!command.published()) {
             unpublishManagedAd(command.bybitAdId());
@@ -224,12 +254,12 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     @Override
-    public void sendChatMessage(String bybitOrderId, int messageIndex, String messageText) {
+    public void sendChatMessage(String bybitOrderId, String messageUuid, String messageText) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("message", messageText);
         request.put("contentType", "str");
         request.put("orderId", bybitOrderId);
-        request.put("msgUuid", UUID.nameUUIDFromBytes((bybitOrderId + ":" + messageIndex).getBytes(StandardCharsets.UTF_8)).toString());
+        request.put("msgUuid", messageUuid);
         post("/v5/p2p/order/message/send", request);
     }
 
@@ -563,6 +593,17 @@ public class HttpBybitGateway implements BybitGateway {
 
     private BigDecimal decimalOrZero(String value) {
         return StringUtils.hasText(value) ? new BigDecimal(value) : BigDecimal.ZERO;
+    }
+
+    private Instant instantFromMillis(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return Instant.ofEpochMilli(Long.parseLong(value));
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private List<String> paymentIds(JsonNode details) {

@@ -59,7 +59,7 @@ public class SystemStatusService {
                 : currentBybitStatus.lastError();
         BigDecimal availableRubBalance = calculateRubBalance(
                 currentBybitStatus.availableUsdtBalance(),
-                adState.getReferenceRate7WithFee()
+                adState.getReferenceRate7()
         );
 
         return new SystemStatusResponse(
@@ -72,6 +72,7 @@ public class SystemStatusService {
                 adState.getLastRateSourcePosition(),
                 adState.getReferenceRate7(),
                 adState.getReferenceRate7WithFee(),
+                adState.getReferenceRate15(),
                 adState.getLastMinRub(),
                 adState.getLastMaxRub(),
                 adState.getLastQuantityUsdt(),

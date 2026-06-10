@@ -157,6 +157,7 @@ public class ReceiptVerificationWorker {
         check.setEmailSubject(result.subject());
         check.setEmailReceivedAt(result.receivedAt());
         check.setPdfFilename(result.attachmentName());
+        check.setPdfContent(result.pdfContent());
         if (receipt != null) {
             check.setParsedStatus(receipt.status());
             check.setParsedAmountRub(receipt.amount());

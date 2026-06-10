@@ -3,12 +3,15 @@ package ru.maltsev.bybitpayerbackend.bybit.dto;
 import java.time.Instant;
 
 public record ChatMessageLogResponse(
-        Long id,
+        String id,
         String bybitOrderId,
-        int messageIndex,
+        Integer messageIndex,
         String messageText,
+        String direction,
+        String authorName,
+        String contentType,
         String status,
-        Instant sentAt,
+        Instant createdAt,
         String error
 ) {
 }

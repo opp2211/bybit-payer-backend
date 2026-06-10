@@ -55,6 +55,11 @@ public class LocalBybitGateway implements BybitGateway {
     }
 
     @Override
+    public List<BybitChatMessage> fetchChatMessages(String bybitOrderId) {
+        return List.of();
+    }
+
+    @Override
     public void updateManagedAd(AdUpdateCommand command) {
     }
 
@@ -63,7 +68,7 @@ public class LocalBybitGateway implements BybitGateway {
     }
 
     @Override
-    public void sendChatMessage(String bybitOrderId, int messageIndex, String messageText) {
+    public void sendChatMessage(String bybitOrderId, String messageUuid, String messageText) {
     }
 
     @Override

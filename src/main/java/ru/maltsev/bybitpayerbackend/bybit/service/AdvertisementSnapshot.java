@@ -8,6 +8,7 @@ public record AdvertisementSnapshot(
         int rateSourcePosition,
         BigDecimal referenceRate7,
         BigDecimal referenceRate7WithFee,
+        BigDecimal referenceRate15,
         BigDecimal minRub,
         BigDecimal maxRub,
         BigDecimal quantityUsdt,

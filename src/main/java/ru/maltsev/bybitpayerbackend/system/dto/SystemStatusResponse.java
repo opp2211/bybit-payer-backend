@@ -13,6 +13,7 @@ public record SystemStatusResponse(
         Integer currentRateSourcePosition,
         BigDecimal referenceRate7,
         BigDecimal referenceRate7WithFee,
+        BigDecimal referenceRate15,
         BigDecimal currentMinRub,
         BigDecimal currentMaxRub,
         BigDecimal currentQuantityUsdt,

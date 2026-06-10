@@ -2,9 +2,7 @@ package ru.maltsev.bybitpayerbackend.withdrawal.service;
 
 import org.springframework.stereotype.Component;
 
-import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ForeignBybitOrderResponse;
-import ru.maltsev.bybitpayerbackend.bybit.entity.BybitChatMessageLogEntity;
 import ru.maltsev.bybitpayerbackend.bybit.entity.ForeignBybitOrderEntity;
 import ru.maltsev.bybitpayerbackend.receipt.dto.EmailReceiptCheckResponse;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
@@ -72,18 +70,6 @@ public class WithdrawalMapper {
         );
     }
 
-    public ChatMessageLogResponse toChatMessageResponse(BybitChatMessageLogEntity entity) {
-        return new ChatMessageLogResponse(
-                entity.getId(),
-                entity.getBybitOrderId(),
-                entity.getMessageIndex(),
-                entity.getMessageText(),
-                entity.getStatus().name(),
-                entity.getSentAt(),
-                entity.getError()
-        );
-    }
-
     public EmailReceiptCheckResponse toReceiptCheckResponse(EmailReceiptCheckEntity entity) {
         return new EmailReceiptCheckResponse(
                 entity.getId(),
@@ -93,6 +79,7 @@ public class WithdrawalMapper {
                 entity.getEmailSubject(),
                 entity.getEmailReceivedAt(),
                 entity.getPdfFilename(),
+                entity.getPdfContent() != null && entity.getPdfContent().length > 0,
                 entity.getParsedStatus(),
                 entity.getParsedAmountRub(),
                 entity.getParsedRecipientPhone(),

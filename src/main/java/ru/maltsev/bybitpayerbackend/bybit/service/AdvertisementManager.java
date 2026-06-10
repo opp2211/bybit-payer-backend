@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AdvertisementManager {
 
+    private static final int REFERENCE_RATE_15_POSITION = 15;
     private static final String AD_DESCRIPTION_TEMPLATE =
             "Только Т-банк! ___ Заходите только на сумму %s руб.  " +
                     "- другие суммы - отмена! ___ Принимаю на карту" +
@@ -191,6 +192,9 @@ public class AdvertisementManager {
                         8,
                         RoundingMode.HALF_UP
                 );
+        BigDecimal referenceRate15 = rateSourcePosition == REFERENCE_RATE_15_POSITION
+                ? rate
+                : bybitGateway.fetchReferenceRate(REFERENCE_RATE_15_POSITION);
         BigDecimal availableUsdt = bybitGateway.fetchAvailableUsdtBalance();
         if (published.isEmpty()) {
             return new AdvertisementSnapshot(
@@ -199,6 +203,7 @@ public class AdvertisementManager {
                     rateSourcePosition,
                     referenceRate7,
                     referenceRate7WithFee,
+                    referenceRate15,
                     bybitProperties.getDefaultMinRub(),
                     bybitProperties.getDefaultMaxRub(),
                     BigDecimal.ZERO.setScale(businessProperties.getUsdtQuantityScale(), RoundingMode.UNNECESSARY),
@@ -233,6 +238,7 @@ public class AdvertisementManager {
                 rateSourcePosition,
                 referenceRate7,
                 referenceRate7WithFee,
+                referenceRate15,
                 minRub,
                 maxRub,
                 quantityUsdt,
@@ -272,6 +278,7 @@ public class AdvertisementManager {
         state.setNextRateSourcePosition(nextRateSourcePosition);
         state.setReferenceRate7(snapshot.referenceRate7());
         state.setReferenceRate7WithFee(snapshot.referenceRate7WithFee());
+        state.setReferenceRate15(snapshot.referenceRate15());
         state.setLastMinRub(snapshot.minRub());
         state.setLastMaxRub(snapshot.maxRub());
         state.setLastQuantityUsdt(snapshot.quantityUsdt());
