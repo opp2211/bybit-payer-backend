@@ -26,7 +26,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -34,7 +33,6 @@ import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 
 @Component
 @Slf4j
-@ConditionalOnProperty(prefix = "bybit", name = "enabled", havingValue = "true")
 public class HttpBybitGateway implements BybitGateway {
 
     private static final String HMAC_SHA256 = "HmacSHA256";

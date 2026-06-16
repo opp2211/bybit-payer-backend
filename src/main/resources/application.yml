@@ -24,11 +24,10 @@ spring:
       max-request-size: 12MB
 
 bybit:
-  enabled: ${BYBIT_ENABLED:false}
   api-key: ${BYBIT_API_KEY:}
   api-secret: ${BYBIT_API_SECRET:}
   env: ${BYBIT_ENV:testnet}
-  base-url: ${BYBIT_BASE_URL:}
+  base-url: ${BYBIT_BASE_URL:https://api.bybit.com}
   recv-window-ms: ${BYBIT_RECV_WINDOW_MS:5000}
   p2p-ad-id: ${BYBIT_P2P_AD_ID:}
   p2p-poll-interval: ${BYBIT_P2P_POLL_INTERVAL_SECONDS:5}s

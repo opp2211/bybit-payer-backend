@@ -9,15 +9,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
 import ru.maltsev.bybitpayerbackend.receipt.config.ReceiptMailProperties;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffMailReceiptValidationResult;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptVerificationRequest;
 
 @SpringBootTest
+@Import(TestBybitGatewayConfiguration.class)
 @EnabledIfSystemProperty(named = "receipt.mail.integration-test", matches = "true")
 class TinkoffReceiptMailServiceIntegrationTests {
 

@@ -1,14 +1,10 @@
 # Bybit P2P Integration
 
-Gateway selection:
-
-- `BYBIT_ENABLED=false` — local no-op gateway, no network calls.
-- `BYBIT_ENABLED=true` — real HTTP gateway with HMAC-SHA256 request signing.
+The application uses the real HTTP gateway with HMAC-SHA256 request signing.
 
 Required env for real gateway:
 
 ```env
-BYBIT_ENABLED=true
 BYBIT_API_KEY=
 BYBIT_API_SECRET=
 BYBIT_ENV=testnet
@@ -20,7 +16,8 @@ BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
 ```
 
-`BYBIT_BASE_URL` is optional. Defaults:
+`BYBIT_BASE_URL` is optional. The application config defaults it to `https://api.bybit.com`.
+If the property is blank, the gateway falls back to `BYBIT_ENV`:
 
 - `BYBIT_ENV=testnet` -> `https://api-testnet.bybit.com`
 - `BYBIT_ENV=mainnet` -> `https://api.bybit.com`

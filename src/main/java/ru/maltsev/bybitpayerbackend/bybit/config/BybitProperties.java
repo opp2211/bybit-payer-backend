@@ -13,7 +13,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "bybit")
 public class BybitProperties {
 
-    private boolean enabled;
     private String apiKey;
     private String apiSecret;
     private String env = "testnet";
@@ -37,12 +36,4 @@ public class BybitProperties {
     private int orderPageSize = 30;
     private String balanceAccountType = "FUND";
     private String balanceCoin = "USDT";
-    private Local local = new Local();
-
-    @Getter
-    @Setter
-    public static class Local {
-        private BigDecimal referenceRate = new BigDecimal("92.31");
-        private BigDecimal availableUsdt = new BigDecimal("100000");
-    }
 }

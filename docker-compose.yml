@@ -23,7 +23,6 @@ services:
       POSTGRES_DB: bybit-payer-db
       POSTGRES_USER: bb-payer
       POSTGRES_PASSWORD: postgres
-      BYBIT_ENABLED: "false"
     ports:
       - "8080:8080"
     depends_on:

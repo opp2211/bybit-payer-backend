@@ -235,7 +235,7 @@ Response:
 ```ts
 type SystemStatus = {
   bybitApiAvailable: boolean;
-  bybitMode: "LOCAL_NOOP" | "CONFIG_MISSING" | "HTTP" | string;
+  bybitMode: "CONFIG_MISSING" | "HTTP" | string;
   gmailImapsAvailable: boolean;
   bybitAdId: string | null;
   adPublished: boolean;

@@ -18,7 +18,4 @@ receipt:
     enabled: false
 
 bybit:
-  enabled: false
-  local:
-    reference-rate: 92.31
-    available-usdt: 100000
+  base-url: ${BYBIT_BASE_URL:https://api.bybit.com}
