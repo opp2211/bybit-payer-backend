@@ -23,7 +23,7 @@ public class TestBybitGatewayConfiguration {
         when(gateway.checkReadiness()).thenReturn(new BybitReadiness(
                 false,
                 "CONFIG_MISSING",
-                "Bybit API key, secret or managed ad id is not configured",
+                "Bybit API key, secret, base URL or managed ad id is not configured",
                 new BigDecimal("100000")
         ));
         when(gateway.fetchReferenceRate()).thenReturn(new BigDecimal("92.31"));

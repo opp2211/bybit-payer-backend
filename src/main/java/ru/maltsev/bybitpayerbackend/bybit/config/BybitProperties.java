@@ -15,7 +15,6 @@ public class BybitProperties {
 
     private String apiKey;
     private String apiSecret;
-    private String env = "testnet";
     private String baseUrl;
     private long recvWindowMs = 5000;
     private String p2pAdId;

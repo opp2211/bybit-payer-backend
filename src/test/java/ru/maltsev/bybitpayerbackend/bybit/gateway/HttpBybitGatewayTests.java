@@ -1,6 +1,7 @@
 package ru.maltsev.bybitpayerbackend.bybit.gateway;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
 import java.net.InetSocketAddress;
@@ -24,6 +25,25 @@ class HttpBybitGatewayTests {
     private static final String AD_UPDATE_PATH = "/v5/p2p/item/update";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void reportsMissingConfigurationWhenBaseUrlIsBlank() {
+        BybitProperties properties = properties();
+        properties.setApiKey("test-api-key");
+        properties.setApiSecret("test-api-secret");
+        properties.setBaseUrl(" ");
+        properties.setP2pAdId("ad-123");
+        HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+
+        BybitReadiness readiness = gateway.checkReadiness();
+
+        assertThat(readiness.available()).isFalse();
+        assertThat(readiness.mode()).isEqualTo("CONFIG_MISSING");
+        assertThat(readiness.message()).contains("base URL");
+        assertThatThrownBy(gateway::fetchReferenceRate)
+                .isInstanceOf(BybitApiException.class)
+                .hasMessageContaining("base URL");
+    }
 
     @Test
     void updatesOnlineAdWithPaymentTermIdsAndModifyAction() throws Exception {
@@ -74,7 +94,7 @@ class HttpBybitGatewayTests {
 
         try {
             BybitProperties properties = properties();
-            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/");
             properties.setApiKey("test-api-key");
             properties.setApiSecret("test-api-secret");
             properties.setP2pAdId("ad-123");

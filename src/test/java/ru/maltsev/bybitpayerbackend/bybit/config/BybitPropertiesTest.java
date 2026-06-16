@@ -10,7 +10,10 @@ import org.springframework.context.annotation.Import;
 import ru.maltsev.bybitpayerbackend.BybitPayerBackendApplication;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
 
-@SpringBootTest(classes = {BybitPayerBackendApplication.class})
+@SpringBootTest(
+        classes = {BybitPayerBackendApplication.class},
+        properties = "bybit.base-url="
+)
 @Import(TestBybitGatewayConfiguration.class)
 class BybitPropertiesTest {
 
@@ -18,8 +21,8 @@ class BybitPropertiesTest {
     private BybitProperties bybitProperties;
 
     @Test
-    void getBaseUrl() {
+    void baseUrlHasNoDefault() {
         String baseUrl = bybitProperties.getBaseUrl();
-        assertEquals("https://api.bybit.com", baseUrl);
+        assertEquals("", baseUrl);
     }
 }

@@ -26,9 +26,8 @@ spring:
 bybit:
   api-key: ${BYBIT_API_KEY:}
   api-secret: ${BYBIT_API_SECRET:}
-  env: ${BYBIT_ENV:testnet}
-  base-url: ${BYBIT_BASE_URL:https://api.bybit.com}
-  recv-window-ms: ${BYBIT_RECV_WINDOW_MS:5000}
+  base-url: ${BYBIT_BASE_URL:}
+  recv-window-ms: ${BYBIT_RECV_WINDOW_MS:10000}
   p2p-ad-id: ${BYBIT_P2P_AD_ID:}
   p2p-poll-interval: ${BYBIT_P2P_POLL_INTERVAL_SECONDS:5}s
   rate-limit-requests-per-second: ${BYBIT_RATE_LIMIT_REQUESTS_PER_SECOND:10}
@@ -55,7 +54,7 @@ business:
   usdt-quantity-scale: ${USDT_QUANTITY_SCALE:4}
   max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
   p2p-fee-rate: ${P2P_FEE_RATE:0.00275}
-  receipt-email-to-send-in-chat: ${RECEIPT_EMAIL_TO_SEND_IN_CHAT:opp2211@gmail.com}
+  receipt-email-to-send-in-chat: ${RECEIPT_EMAIL_TO_SEND_IN_CHAT:}
 
 system:
   status-refresh-interval: ${SYSTEM_STATUS_REFRESH_INTERVAL_SECONDS:30}s

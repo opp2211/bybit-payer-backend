@@ -36,6 +36,7 @@ import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 public class HttpBybitGateway implements BybitGateway {
 
     private static final String HMAC_SHA256 = "HmacSHA256";
+    private static final String MISSING_CONFIG_MESSAGE = "Bybit API key, secret, base URL or managed ad id is not configured";
     private static final int AD_STATUS_ONLINE = 10;
     private static final int ORDER_STATUS_WAITING_BUYER_PAY = 10;
     private static final int ORDER_STATUS_WAITING_SELLER_RELEASE = 20;
@@ -76,7 +77,7 @@ public class HttpBybitGateway implements BybitGateway {
             return new BybitReadiness(
                     false,
                     "CONFIG_MISSING",
-                    "Bybit API key, secret or managed ad id is not configured",
+                    MISSING_CONFIG_MESSAGE,
                     null
             );
         }
@@ -437,24 +438,27 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     private String baseUrl() {
-        if (StringUtils.hasText(properties.getBaseUrl())) {
-            return properties.getBaseUrl().replaceAll("/+$", "");
+        String configuredBaseUrl = properties.getBaseUrl();
+        if (!StringUtils.hasText(configuredBaseUrl)) {
+            throw new BybitApiException("Bybit base URL is not configured");
         }
-        String env = properties.getEnv() == null ? "" : properties.getEnv().trim().toLowerCase(Locale.ROOT);
-        return "mainnet".equals(env) || "prod".equals(env) || "production".equals(env)
-                ? "https://api.bybit.com"
-                : "https://api-testnet.bybit.com";
+        String normalizedBaseUrl = configuredBaseUrl.trim().replaceAll("/+$", "");
+        if (!StringUtils.hasText(normalizedBaseUrl)) {
+            throw new BybitApiException("Bybit base URL is not configured");
+        }
+        return normalizedBaseUrl;
     }
 
     private boolean isConfigured() {
         return StringUtils.hasText(properties.getApiKey())
                 && StringUtils.hasText(properties.getApiSecret())
+                && StringUtils.hasText(properties.getBaseUrl())
                 && StringUtils.hasText(properties.getP2pAdId());
     }
 
     private void ensureConfigured() {
         if (!isConfigured()) {
-            throw new BybitApiException("Bybit API key, secret or managed ad id is not configured");
+            throw new BybitApiException(MISSING_CONFIG_MESSAGE);
         }
     }
 

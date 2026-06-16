@@ -7,20 +7,17 @@ Required env for real gateway:
 ```env
 BYBIT_API_KEY=
 BYBIT_API_SECRET=
-BYBIT_ENV=testnet
-BYBIT_BASE_URL=
+BYBIT_BASE_URL=https://api.bybit.com
 BYBIT_P2P_AD_ID=
-BYBIT_RECV_WINDOW_MS=5000
+BYBIT_RECV_WINDOW_MS=10000
 BYBIT_ORDER_SOURCE_SIDE=SELL
 BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
 ```
 
-`BYBIT_BASE_URL` is optional. The application config defaults it to `https://api.bybit.com`.
-If the property is blank, the gateway falls back to `BYBIT_ENV`:
-
-- `BYBIT_ENV=testnet` -> `https://api-testnet.bybit.com`
-- `BYBIT_ENV=mainnet` -> `https://api.bybit.com`
+`BYBIT_BASE_URL` is required and must contain the Bybit API origin, for example
+`https://api.bybit.com` or `https://api-testnet.bybit.com`. The gateway trims trailing slashes.
+If the property is blank, readiness returns `CONFIG_MISSING` and signed requests fail before an HTTP call.
 
 ## Used Endpoints
 

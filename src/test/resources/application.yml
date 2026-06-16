@@ -18,4 +18,4 @@ receipt:
     enabled: false
 
 bybit:
-  base-url: ${BYBIT_BASE_URL:https://api.bybit.com}
+  base-url: ${BYBIT_BASE_URL:}
