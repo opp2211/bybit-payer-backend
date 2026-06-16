@@ -52,7 +52,8 @@ For order polling, the side mapping follows Bybit order docs:
 - `BUY` -> `0`
 - `SELL` -> `1`
 
-The gateway requests `/v5/market/time` before signed requests and falls back to local time if server time is temporarily unavailable.
+Signed requests use the local application clock for `X-BAPI-TIMESTAMP`. The gateway does not call
+`/v5/market/time`; `BYBIT_RECV_WINDOW_MS` is kept wider to tolerate small local clock drift.
 
 The managed ad starts from `BYBIT_RATE_SOURCE_AD_INDEX` (15 by default). Every
 `BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES` minutes it refreshes the same position once, then moves

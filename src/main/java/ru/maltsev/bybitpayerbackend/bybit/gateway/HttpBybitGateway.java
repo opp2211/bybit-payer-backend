@@ -320,7 +320,7 @@ public class HttpBybitGateway implements BybitGateway {
         ensureConfigured();
         throttle();
 
-        long timestamp = getServerSyncedTimestampMillis();
+        long timestamp = clock.millis();
         String recvWindow = String.valueOf(properties.getRecvWindowMs());
         String payloadForSignature = "GET".equals(method) ? queryString : bodyJson;
         String signature = hmacSha256(timestamp + properties.getApiKey() + recvWindow + payloadForSignature);
@@ -459,45 +459,6 @@ public class HttpBybitGateway implements BybitGateway {
     private void ensureConfigured() {
         if (!isConfigured()) {
             throw new BybitApiException(MISSING_CONFIG_MESSAGE);
-        }
-    }
-
-    private long getServerSyncedTimestampMillis() {
-        long localTime = clock.millis();
-        try {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl() + "/v5/market/time"))
-                    .timeout(Duration.ofSeconds(10))
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (response.statusCode() >= 400) {
-                log.debug(
-                        "Bybit server time request failed, using local time: status={}",
-                        response.statusCode()
-                );
-                return localTime;
-            }
-            JsonNode root = objectMapper.readTree(response.body());
-            if (root.path("retCode").asInt(-1) != 0) {
-                log.debug("Bybit server time response contains an error, using local time");
-                return localTime;
-            }
-            if (root.path("time").asLong(0) > 0) {
-                return root.path("time").asLong();
-            }
-            JsonNode result = root.path("result");
-            String timeNano = result.path("timeNano").asText();
-            if (StringUtils.hasText(timeNano)) {
-                return Long.parseLong(timeNano) / 1_000_000L;
-            }
-            String timeSecond = result.path("timeSecond").asText();
-            if (StringUtils.hasText(timeSecond)) {
-                return Long.parseLong(timeSecond) * 1_000L;
-            }
-            return localTime;
-        } catch (Exception exception) {
-            log.debug("Bybit server time request failed, using local time: message={}", exception.getMessage());
-            return localTime;
         }
     }
 

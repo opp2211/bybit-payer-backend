@@ -68,11 +68,15 @@ class HttpBybitGatewayTests {
 
     @Test
     void returnsBalanceFetchedDuringReadinessCheck() throws Exception {
+        AtomicInteger timeRequests = new AtomicInteger();
         AtomicInteger balanceRequests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v5/market/time", exchange -> respond(exchange, """
-                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
-                """));
+        server.createContext("/v5/market/time", exchange -> {
+            timeRequests.incrementAndGet();
+            respond(exchange, """
+                    {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
+                    """);
+        });
         server.createContext("/v5/asset/transfer/query-account-coins-balance", exchange -> {
             balanceRequests.incrementAndGet();
             respond(exchange, """
@@ -104,6 +108,7 @@ class HttpBybitGatewayTests {
 
             assertThat(readiness.available()).isTrue();
             assertThat(readiness.availableUsdtBalance()).isEqualByComparingTo("123.45");
+            assertThat(timeRequests).hasValue(0);
             assertThat(balanceRequests).hasValue(1);
         } finally {
             server.stop(0);
@@ -112,11 +117,12 @@ class HttpBybitGatewayTests {
 
     @Test
     void readsTerminalOrderStatusAndUsdtAmounts() throws Exception {
+        Instant fixedInstant = Instant.ofEpochMilli(1741769463827L);
+        AtomicReference<String> timestampHeader = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v5/market/time", exchange -> respond(exchange, """
-                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
-                """));
-        server.createContext("/v5/p2p/order/info", exchange -> respond(exchange, """
+        server.createContext("/v5/p2p/order/info", exchange -> {
+            timestampHeader.set(exchange.getRequestHeaders().getFirst("X-BAPI-TIMESTAMP"));
+            respond(exchange, """
                 {
                   "retCode": 0,
                   "retMsg": "OK",
@@ -128,7 +134,8 @@ class HttpBybitGatewayTests {
                     "status": 50
                   }
                 }
-                """));
+                """);
+        });
         server.start();
 
         try {
@@ -137,10 +144,11 @@ class HttpBybitGatewayTests {
             properties.setApiKey("test-api-key");
             properties.setApiSecret("test-api-secret");
             properties.setP2pAdId("ad-123");
-            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.fixed(fixedInstant, java.time.ZoneOffset.UTC));
 
             BybitP2pOrder order = gateway.fetchOrder("order-123").orElseThrow();
 
+            assertThat(timestampHeader).hasValue(String.valueOf(fixedInstant.toEpochMilli()));
             assertThat(order.finished()).isTrue();
             assertThat(order.quantityUsdt()).isEqualByComparingTo("108.25");
             assertThat(order.feeUsdt()).isEqualByComparingTo("0.30");
@@ -153,9 +161,6 @@ class HttpBybitGatewayTests {
     @Test
     void readsOrderChatMessages() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v5/market/time", exchange -> respond(exchange, """
-                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
-                """));
         server.createContext("/v5/p2p/order/message/listpage", exchange -> respond(exchange, """
                 {
                   "ret_code": 0,
@@ -202,9 +207,6 @@ class HttpBybitGatewayTests {
     private JsonNode captureAdUpdatePayload(int adStatus) throws Exception {
         AtomicReference<String> updateRequestBody = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v5/market/time", exchange -> respond(exchange, """
-                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
-                """));
         server.createContext(AD_INFO_PATH, exchange -> respond(exchange, """
                 {
                   "retCode": 0,
