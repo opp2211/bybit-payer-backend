@@ -34,6 +34,7 @@ If the property is blank, the gateway falls back to `BYBIT_ENV`:
 - `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
 - `POST /v5/p2p/order/message/send` — send requisites to order chat.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
+- `POST /v5/p2p/order/cancel` — experimentally cancel a P2P order by id.
 
 ## Notes
 
@@ -72,3 +73,14 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 - status `50` completes the withdrawal because the assets were released outside the application.
 
 Foreign orders are observation-only. They are shown while present in the active Bybit order list and removed locally after they disappear from that list. The application does not submit cancellation requests for them.
+
+## Manual Order Cancellation Test
+
+`HttpBybitGatewayManualTests` is disabled by default. To try the experimental order cancellation endpoint,
+hardcode `BYBIT_ORDER_ID` in the test and run:
+
+```powershell
+.\mvnw -Dtest=HttpBybitGatewayManualTests -Dbybit.manual.cancel-order-test=true test
+```
+
+The test loads Bybit settings from the normal test configuration, environment variables, and optional `.env`.

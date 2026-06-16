@@ -22,6 +22,7 @@ class HttpBybitGatewayTests {
 
     private static final String AD_INFO_PATH = "/v5/p2p/item/info";
     private static final String AD_UPDATE_PATH = "/v5/p2p/item/update";
+    private static final String ORDER_CANCEL_PATH = "/v5/p2p/order/cancel";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -174,6 +175,41 @@ class HttpBybitGatewayTests {
             assertThat(messages.getFirst().message()).isEqualTo("Здравствуйте");
             assertThat(messages.getFirst().nickname()).isEqualTo("Покупатель");
             assertThat(messages.getFirst().createdAt()).isEqualTo(Instant.ofEpochMilli(1741763625000L));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void cancelsOrderWithOrderId() throws Exception {
+        AtomicReference<String> requestMethod = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v5/market/time", exchange -> respond(exchange, """
+                {"retCode":0,"retMsg":"OK","time":1741769463827,"result":{}}
+                """));
+        server.createContext(ORDER_CANCEL_PATH, exchange -> {
+            requestMethod.set(exchange.getRequestMethod());
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, """
+                    {"retCode":0,"retMsg":"OK","result":{}}
+                    """);
+        });
+        server.start();
+
+        try {
+            BybitProperties properties = properties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setApiKey("test-api-key");
+            properties.setApiSecret("test-api-secret");
+            properties.setP2pAdId("ad-123");
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+
+            gateway.cancelOrder("order-123");
+
+            JsonNode payload = objectMapper.readTree(requestBody.get());
+            assertThat(requestMethod).hasValue("POST");
+            assertThat(payload.path("orderId").asText()).isEqualTo("order-123");
         } finally {
             server.stop(0);
         }

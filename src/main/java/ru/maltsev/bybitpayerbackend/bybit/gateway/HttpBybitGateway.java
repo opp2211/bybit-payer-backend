@@ -268,6 +268,13 @@ public class HttpBybitGateway implements BybitGateway {
         post("/v5/p2p/order/finish", request);
     }
 
+    @Override
+    public void cancelOrder(String bybitOrderId) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("orderId", bybitOrderId);
+        post("/v5/p2p/order/cancel", request);
+    }
+
     private JsonNode getManagedAdDetails(String bybitAdId) {
         if (!StringUtils.hasText(bybitAdId)) {
             throw new BybitApiException("Bybit managed ad id is not configured");
