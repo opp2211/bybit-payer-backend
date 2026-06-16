@@ -84,3 +84,5 @@ hardcode `BYBIT_ORDER_ID` in the test and run:
 ```
 
 The test loads Bybit settings from the normal test configuration, environment variables, and optional `.env`.
+The gateway writes the raw Bybit response for this endpoint to the INFO log:
+`Bybit order cancel response: status=..., requestBody=..., responseBody=...`.
