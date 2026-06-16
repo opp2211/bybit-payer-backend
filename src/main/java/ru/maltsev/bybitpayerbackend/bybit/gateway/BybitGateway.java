@@ -27,6 +27,4 @@ public interface BybitGateway {
     void sendChatMessage(String bybitOrderId, String messageUuid, String messageText);
 
     void releaseOrder(String bybitOrderId);
-
-    void cancelOrder(String bybitOrderId);
 }

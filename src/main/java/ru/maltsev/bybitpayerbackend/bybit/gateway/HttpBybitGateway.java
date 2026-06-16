@@ -36,7 +36,6 @@ import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 public class HttpBybitGateway implements BybitGateway {
 
     private static final String HMAC_SHA256 = "HmacSHA256";
-    private static final String ORDER_CANCEL_PATH = "/v5/p2p/order/cancel";
     private static final int AD_STATUS_ONLINE = 10;
     private static final int ORDER_STATUS_WAITING_BUYER_PAY = 10;
     private static final int ORDER_STATUS_WAITING_SELLER_RELEASE = 20;
@@ -269,13 +268,6 @@ public class HttpBybitGateway implements BybitGateway {
         post("/v5/p2p/order/finish", request);
     }
 
-    @Override
-    public void cancelOrder(String bybitOrderId) {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("orderId", bybitOrderId);
-        post(ORDER_CANCEL_PATH, request);
-    }
-
     private JsonNode getManagedAdDetails(String bybitAdId) {
         if (!StringUtils.hasText(bybitAdId)) {
             throw new BybitApiException("Bybit managed ad id is not configured");
@@ -358,13 +350,11 @@ public class HttpBybitGateway implements BybitGateway {
                     response.statusCode(),
                     durationMs
             );
-            String responseBody = response.body();
-            logCancelOrderResponse(path, bodyJson, response.statusCode(), responseBody);
             if (response.statusCode() >= 400) {
                 boolean retryable = response.statusCode() == 429 || response.statusCode() >= 500;
                 throw new BybitApiException("Bybit HTTP " + response.statusCode() + " for " + path, retryable);
             }
-            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode root = objectMapper.readTree(response.body());
             assertSuccess(root, path);
             return root.path("result");
         } catch (IOException exception) {
@@ -377,18 +367,6 @@ public class HttpBybitGateway implements BybitGateway {
 
     private boolean isRetryable(RuntimeException exception) {
         return exception instanceof BybitApiException bybitException && bybitException.isRetryable();
-    }
-
-    private void logCancelOrderResponse(String path, String requestBody, int statusCode, String responseBody) {
-        if (!ORDER_CANCEL_PATH.equals(path)) {
-            return;
-        }
-        log.info(
-                "Bybit order cancel response: status={}, requestBody={}, responseBody={}",
-                statusCode,
-                requestBody,
-                responseBody
-        );
     }
 
     private void assertSuccess(JsonNode root, String path) {
