@@ -115,7 +115,7 @@ public class WithdrawalService {
         WithdrawalRequestEntity withdrawal = getRequiredEntity(id);
         WithdrawalStatus previousStatus = withdrawal.getStatus();
         if (!previousStatus.canBeCancelled()) {
-            throw BusinessException.conflict("Withdrawal cannot be cancelled in status " + withdrawal.getStatus());
+            throw BusinessException.conflict("Withdrawal cannot be cancelled in status " + previousStatus);
         }
 
         if (withdrawal.getStatus() == WithdrawalStatus.IN_WORK) {

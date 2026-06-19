@@ -17,5 +17,13 @@ receipt:
   mail:
     enabled: false
 
+auth:
+  username: operator
+  password-hash: "{bcrypt}$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG"
+  remember-me-key: test-remember-me-key-at-least-32-characters
+  remember-me-validity: 24855d
+  max-failed-attempts: 10
+  failure-window: 5m
+
 bybit:
   base-url: ${BYBIT_BASE_URL:}

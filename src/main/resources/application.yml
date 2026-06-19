@@ -23,10 +23,26 @@ spring:
       max-file-size: 10MB
       max-request-size: 12MB
 
+server:
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: strict
+
+auth:
+  username: ${AUTH_USERNAME:}
+  password-hash: ${AUTH_PASSWORD_HASH:}
+  remember-me-key: ${AUTH_REMEMBER_ME_KEY:}
+  remember-me-validity: ${AUTH_REMEMBER_ME_VALIDITY:24855d}
+  max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:10}
+  failure-window: ${AUTH_FAILURE_WINDOW:5m}
+
 bybit:
   api-key: ${BYBIT_API_KEY:}
   api-secret: ${BYBIT_API_SECRET:}
-  base-url: ${BYBIT_BASE_URL:}
+  base-url: ${BYBIT_BASE_URL:https://api.bybit.com}
   recv-window-ms: ${BYBIT_RECV_WINDOW_MS:10000}
   p2p-ad-id: ${BYBIT_P2P_AD_ID:}
   p2p-poll-interval: ${BYBIT_P2P_POLL_INTERVAL_SECONDS:5}s

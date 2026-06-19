@@ -23,6 +23,9 @@ services:
       POSTGRES_DB: bybit-payer-db
       POSTGRES_USER: bb-payer
       POSTGRES_PASSWORD: postgres
+      AUTH_USERNAME: ${AUTH_USERNAME:?AUTH_USERNAME is required}
+      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:?AUTH_PASSWORD_HASH is required}
+      AUTH_REMEMBER_ME_KEY: ${AUTH_REMEMBER_ME_KEY:?AUTH_REMEMBER_ME_KEY is required}
     ports:
       - "8080:8080"
     depends_on:
