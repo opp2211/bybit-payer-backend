@@ -22,6 +22,7 @@ public record AuthProperties(
         String passwordHash,
         @NotBlank @Size(min = 32) String rememberMeKey,
         @NotNull Duration rememberMeValidity,
+        boolean rememberMeSecure,
         @Min(1) int maxFailedAttempts,
         @NotNull Duration failureWindow
 ) {

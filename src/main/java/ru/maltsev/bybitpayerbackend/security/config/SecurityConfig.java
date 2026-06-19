@@ -68,6 +68,7 @@ public class SecurityConfig {
         services.setCookieName(REMEMBER_ME_COOKIE);
         services.setCookieCustomizer(cookie -> {
             cookie.setPath("/");
+            cookie.setSecure(properties.rememberMeSecure());
             cookie.setAttribute("SameSite", "Strict");
         });
         return services;
@@ -81,7 +82,11 @@ public class SecurityConfig {
     ) throws Exception {
         http
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/auth/csrf", "/api/auth/login").permitAll()
+                        .requestMatchers(
+                                "/api/auth/csrf",
+                                "/api/auth/login",
+                                "/actuator/health/**"
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .csrf(csrf -> csrf

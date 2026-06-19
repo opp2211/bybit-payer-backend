@@ -68,10 +68,17 @@ class AuthSecurityIntegrationTest {
     }
 
     @Test
+    void exposesHealthEndpointWithoutAuthentication() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void logsInAndRestoresAuthenticationFromPersistentCookie() throws Exception {
         MvcResult login = login("password")
                 .andExpect(status().isNoContent())
                 .andExpect(cookie().exists(SecurityConfig.REMEMBER_ME_COOKIE))
+                .andExpect(cookie().secure(SecurityConfig.REMEMBER_ME_COOKIE, true))
                 .andReturn();
 
         Cookie rememberMeCookie = login.getResponse().getCookie(SecurityConfig.REMEMBER_ME_COOKIE);

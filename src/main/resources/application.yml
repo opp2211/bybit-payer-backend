@@ -35,7 +35,8 @@ auth:
   username: ${AUTH_USERNAME:}
   password-hash: ${AUTH_PASSWORD_HASH:}
   remember-me-key: ${AUTH_REMEMBER_ME_KEY:}
-  remember-me-validity: ${AUTH_REMEMBER_ME_VALIDITY:24855d}
+  remember-me-validity: ${AUTH_REMEMBER_ME_VALIDITY:30d}
+  remember-me-secure: ${AUTH_REMEMBER_ME_SECURE:false}
   max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:10}
   failure-window: ${AUTH_FAILURE_WINDOW:5m}
 

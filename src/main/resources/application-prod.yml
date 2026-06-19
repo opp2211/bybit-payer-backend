@@ -1,0 +1,34 @@
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+server:
+  shutdown: graceful
+  servlet:
+    session:
+      cookie:
+        secure: true
+
+auth:
+  remember-me-validity: ${AUTH_REMEMBER_ME_VALIDITY:30d}
+  remember-me-secure: true
+
+management:
+  server:
+    address: 127.0.0.1
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

@@ -19,6 +19,11 @@ BYBIT_BALANCE_COIN=USDT
 `https://api.bybit.com` or `https://api-testnet.bybit.com`. The gateway trims trailing slashes.
 If the property is blank, readiness returns `CONFIG_MISSING` and signed requests fail before an HTTP call.
 
+For production deployment, copy `.env.prod.example` to `.env` and fill the
+Bybit values before running `compose.prod.yml`. The production Compose file
+requires the API key, secret, base URL, and managed ad ID and passes the rest of
+the optional Bybit settings through the environment file.
+
 ## Used Endpoints
 
 - `POST /v5/p2p/item/online` — get public ads and take the configured 1-based ad index for rate.
