@@ -30,7 +30,7 @@ services:
   backend:
     build:
       context: .
-    image: bybit-payer-backend:local
+    image: ${BACKEND_IMAGE:-bybit-payer-backend:local}
     restart: unless-stopped
     env_file:
       - .env

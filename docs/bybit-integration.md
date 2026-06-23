@@ -24,6 +24,16 @@ Bybit values before running `compose.prod.yml`. The production Compose file
 requires the API key, secret, base URL, and managed ad ID and passes the rest of
 the optional Bybit settings through the environment file.
 
+## Tests and CI safety
+
+Regular unit and integration tests must not call the real Bybit API. Gateway
+tests use local fake HTTP servers or mocked `BybitGateway` beans, and
+`src/test/resources/application.yml` keeps the Bybit base URL blank by default.
+
+Live Bybit checks, if they are ever needed, should be named `*ManualTests` or
+`*LiveTests`. Maven Surefire excludes these patterns from the normal
+`./mvnw test` run, so GitHub Actions can deploy without touching real Bybit.
+
 ## Used Endpoints
 
 - `POST /v5/p2p/item/online` — get public ads and take the configured 1-based ad index for rate.

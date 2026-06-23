@@ -93,3 +93,35 @@ docker compose -f compose.prod.yml down
 ```bash
 ./mvnw test
 ```
+
+## CI/CD
+
+Workflow `.github/workflows/deploy-backend.yml` запускается при каждом push в
+`master` и вручную через `workflow_dispatch`.
+
+Что делает pipeline:
+
+1. прогоняет `./mvnw test`;
+2. валидирует production Compose-конфиг на фейковых секретах;
+3. собирает Docker image;
+4. заходит на VPS по SSH;
+5. делает fast-forward pull `master`;
+6. пересобирает и перезапускает backend;
+7. ждёт Docker healthcheck и проверяет `GET /api/auth/csrf`.
+
+Если новый backend не проходит healthcheck или smoke-check, deploy-скрипт
+пытается откатить контейнер на предыдущий Docker image. Миграции БД назад
+автоматически не откатываются.
+
+Для GitHub Actions нужны repository secrets:
+
+- `VPS_HOST` — IP или домен VPS;
+- `VPS_USER` — SSH-пользователь, например `ubuntu`;
+- `VPS_SSH_PRIVATE_KEY` — приватный deploy-ключ без пароля;
+- `VPS_SSH_PORT` — опционально, по умолчанию `22`;
+- `VPS_APP_DIR` — опционально, по умолчанию `/opt/bybit-payer/backend`;
+- `VPS_SSH_KNOWN_HOSTS` — опционально, вывод `ssh-keyscan -H <host>`.
+
+На VPS репозиторий должен быть уже склонирован в `VPS_APP_DIR`, рядом должен
+лежать заполненный `.env`, а Docker Compose должен запускаться без `sudo` для
+пользователя деплоя.
