@@ -27,7 +27,19 @@ public class TinkoffReceiptPdfParser {
     private static final List<String> PHONE_LABELS = List.of("Телефон получателя", "Номер телефона", "Телефон");
     private static final List<String> BANK_LABELS = List.of("Банк получателя", "Банк карты получателя");
     private static final Pattern PHONE_PATTERN = Pattern.compile("(?iu)(?:\\+7|8)\\s*\\(?\\d{3}\\)?[\\d\\s().-]{7,}");
-    private static final List<String> KNOWN_STATUSES = List.of("Успешно", "Исполнено", "Выполнено", "Отклонено", "Отменено");
+    private static final List<String> KNOWN_STATUSES = List.of(
+            "Неуспешно",
+            "Не успешно",
+            "Неисполнено",
+            "Не исполнено",
+            "Невыполнено",
+            "Не выполнено",
+            "Успешно",
+            "Исполнено",
+            "Выполнено",
+            "Отклонено",
+            "Отменено"
+    );
 
     public ParsedTinkoffReceipt parse(byte[] pdf) {
         try (PDDocument document = Loader.loadPDF(pdf)) {
@@ -66,7 +78,7 @@ public class TinkoffReceiptPdfParser {
         if (labeledStatus.isPresent()) {
             String normalizedValue = ReceiptText.normalizeHuman(labeledStatus.get());
             for (String status : KNOWN_STATUSES) {
-                if (normalizedValue.contains(ReceiptText.normalizeHuman(status))) {
+                if (containsNormalizedHumanValue(normalizedValue, status)) {
                     return Optional.of(status);
                 }
             }
@@ -75,8 +87,14 @@ public class TinkoffReceiptPdfParser {
 
         String normalizedText = ReceiptText.normalizeHuman(text);
         return KNOWN_STATUSES.stream()
-                .filter(status -> normalizedText.contains(ReceiptText.normalizeHuman(status)))
+                .filter(status -> containsNormalizedHumanValue(normalizedText, status))
                 .findFirst();
+    }
+
+    private boolean containsNormalizedHumanValue(String normalizedSource, String expected) {
+        String normalizedExpected = ReceiptText.normalizeHuman(expected);
+        return ReceiptText.hasText(normalizedExpected)
+                && (" " + normalizedSource + " ").contains(" " + normalizedExpected + " ");
     }
 
     private Optional<String> extractPhone(String text) {

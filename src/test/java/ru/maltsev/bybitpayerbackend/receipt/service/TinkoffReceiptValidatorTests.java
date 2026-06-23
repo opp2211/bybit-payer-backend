@@ -46,6 +46,34 @@ class TinkoffReceiptValidatorTests {
     }
 
     @Test
+    void rejectsUnsuccessfulReceiptTextWithMatchingPaymentDetails() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("12345.67"),
+                "иван петров",
+                "70000000000",
+                "сбербанк"
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Документ по операции
+                Статус операции
+                Неуспешно
+                Сумма
+                12 345,67 ₽
+                Получатель
+                Иван Петров
+                Телефон получателя
+                +7 (000) 000-00-00
+                Банк получателя
+                Сбербанк
+                """, expected);
+
+        assertThat(result.valid()).isFalse();
+        assertThat(result.receipt().status()).isEqualTo("Неуспешно");
+        assertThat(result.errors()).containsExactly("В чеке не найден ожидаемый статус: Успешно");
+    }
+
+    @Test
     void returnsErrorsForMismatchedReceiptText() {
         TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
                 new BigDecimal("9900"),

@@ -47,6 +47,10 @@ Live Bybit checks, if they are ever needed, should be named `*ManualTests` or
 - `POST /v5/p2p/order/message/send` — send requisites to order chat.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
+Receipt verification must match the parsed status as a complete normalized value before calling
+`/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated
+as `Успешно` by substring matching.
+
 ## Notes
 
 The gateway reads `/v5/p2p/item/info` before `/v5/p2p/item/update` and:
