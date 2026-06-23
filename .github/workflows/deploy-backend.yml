@@ -45,7 +45,9 @@ jobs:
           BYBIT_P2P_AD_ID: ci-ad-id
           RECEIPT_MAIL_USERNAME: ci@example.com
           RECEIPT_MAIL_PASSWORD: ci-mail-password
-        run: docker compose -f compose.prod.yml config --quiet
+        run: |
+          touch .env
+          docker compose -f compose.prod.yml config --quiet
 
       - name: Build Docker image
         run: docker build -t bybit-payer-backend:ci .
