@@ -24,6 +24,24 @@ Bybit values before running `compose.prod.yml`. The production Compose file
 requires the API key, secret, base URL, and managed ad ID and passes the rest of
 the optional Bybit settings through the environment file.
 
+## Local profile safety
+
+Run local development with the `local` Spring profile when the application must
+not touch the real Bybit account:
+
+```bash
+SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
+```
+
+The `local` profile uses `FakeBybitGateway` instead of `HttpBybitGateway`.
+The fake gateway returns a stable reference rate and available USDT balance,
+returns no active orders or chat messages, and treats ad updates, ad unpublishing,
+chat messages, and order releases as no-op operations with log messages only.
+
+The same profile also disables receipt mail polling through
+`receipt.mail.enabled=false`, so a local instance does not read or mark messages
+in the production mailbox.
+
 ## Tests and CI safety
 
 Regular unit and integration tests must not call the real Bybit API. Gateway

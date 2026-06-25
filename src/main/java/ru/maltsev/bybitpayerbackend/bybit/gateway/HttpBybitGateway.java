@@ -26,12 +26,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 
 @Component
+@Profile("!local")
 @Slf4j
 public class HttpBybitGateway implements BybitGateway {
 

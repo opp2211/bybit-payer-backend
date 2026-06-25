@@ -38,7 +38,6 @@ build/
 !.env.example
 !.env.prod.example
 /AGENTS.md
-src/main/resources/application-local.yml
 src/main/resources/application-local.yaml
 src/test/resources/application-local.yml
 src/test/resources/application-local.yaml
