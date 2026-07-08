@@ -31,6 +31,15 @@ jobs:
       - name: Run tests
         run: ./mvnw test
 
+      - name: Verify OpenAPI documentation is up to date
+        run: |
+          if [ -n "$(git status --porcelain -- docs/openapi.json)" ]; then
+            git diff -- docs/openapi.json || true
+            git status --short -- docs/openapi.json
+            echo "::error::docs/openapi.json is out of date. Run ./mvnw test or scripts/generate-openapi.sh and commit the generated file."
+            exit 1
+          fi
+
       - name: Validate production Compose config
         env:
           POSTGRES_DB: bybit_payer

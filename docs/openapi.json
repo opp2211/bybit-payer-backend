@@ -1,0 +1,1029 @@
+{
+  "openapi" : "3.1.0",
+  "info" : {
+    "title" : "OpenAPI definition",
+    "version" : "v0"
+  },
+  "servers" : [ {
+    "url" : "http://localhost",
+    "description" : "Generated server url"
+  } ],
+  "paths" : {
+    "/api/withdrawals" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "create",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateWithdrawalRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "201" : {
+            "description" : "Created",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/{id}/release" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "release",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/{id}/mark-seen" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "markSeen",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/{id}/chat/messages" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "sendChatMessage",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/SendChatMessageRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "204" : {
+            "description" : "No Content"
+          }
+        }
+      }
+    },
+    "/api/tinkoff-receipts/pdf/verify" : {
+      "post" : {
+        "tags" : [ "tinkoff-receipt-controller" ],
+        "operationId" : "verifyPdf",
+        "parameters" : [ {
+          "name" : "amount",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "number",
+            "exclusiveMinimum" : 0
+          }
+        }, {
+          "name" : "recipient",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        }, {
+          "name" : "phone",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        }, {
+          "name" : "bank",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "multipart/form-data" : {
+              "schema" : {
+                "type" : "object",
+                "properties" : {
+                  "file" : {
+                    "type" : "string",
+                    "format" : "binary"
+                  }
+                },
+                "required" : [ "file" ]
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/TinkoffReceiptValidationResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tinkoff-receipts/mail/verify" : {
+      "post" : {
+        "tags" : [ "tinkoff-receipt-controller" ],
+        "operationId" : "verifyMail",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/TinkoffReceiptVerificationRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/TinkoffMailReceiptValidationResult"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/resync" : {
+      "post" : {
+        "tags" : [ "system-controller" ],
+        "operationId" : "resync",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/{id}" : {
+      "get" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "getDetails",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalDetailsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "cancel",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/{id}/receipts/{receiptId}/pdf" : {
+      "get" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "getReceiptPdf",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "name" : "receiptId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "string",
+                  "format" : "byte"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/completed" : {
+      "get" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "getCompleted",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/WithdrawalResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/withdrawals/active" : {
+      "get" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "getActive",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/WithdrawalResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/status" : {
+      "get" : {
+        "tags" : [ "system-controller" ],
+        "operationId" : "getStatus",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/foreign-orders/{id}" : {
+      "get" : {
+        "tags" : [ "foreign-bybit-order-controller" ],
+        "operationId" : "getDetails_1",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ForeignBybitOrderResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/foreign-orders/active" : {
+      "get" : {
+        "tags" : [ "foreign-bybit-order-controller" ],
+        "operationId" : "getActive_1",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/ForeignBybitOrderResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/banks" : {
+      "get" : {
+        "tags" : [ "bank-controller" ],
+        "operationId" : "getBanks",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/BankResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me" : {
+      "get" : {
+        "tags" : [ "auth-controller" ],
+        "operationId" : "me",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AuthenticatedUserResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/csrf" : {
+      "get" : {
+        "tags" : [ "auth-controller" ],
+        "operationId" : "csrf",
+        "parameters" : [ {
+          "name" : "token",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/CsrfToken"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CsrfTokenResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "CreateWithdrawalRequest" : {
+        "type" : "object",
+        "properties" : {
+          "amountRub" : {
+            "type" : "number"
+          },
+          "recipientPhone" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "recipientBank" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "recipientName" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        },
+        "required" : [ "amountRub", "recipientBank", "recipientName", "recipientPhone" ]
+      },
+      "WithdrawalResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "amountRub" : {
+            "type" : "number"
+          },
+          "recipientPhone" : {
+            "type" : "string"
+          },
+          "recipientBank" : {
+            "type" : "string"
+          },
+          "recipientBankTitle" : {
+            "type" : "string"
+          },
+          "recipientName" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "statusTitle" : {
+            "type" : "string"
+          },
+          "attentionRequired" : {
+            "type" : "boolean"
+          },
+          "completionSeen" : {
+            "type" : "boolean"
+          },
+          "queueGroupKey" : {
+            "type" : "string"
+          },
+          "queuePosition" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "bybitOrderId" : {
+            "type" : "string"
+          },
+          "bybitOrderAmountRub" : {
+            "type" : "number"
+          },
+          "bybitOrderQuantityUsdt" : {
+            "type" : "number"
+          },
+          "bybitOrderFeeUsdt" : {
+            "type" : "number"
+          },
+          "bybitOrderTotalUsdt" : {
+            "type" : "number"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "queuedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "publishedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "orderFoundAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "requisitesSentAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "paidAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "verificationStartedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "completedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "cancelledAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastError" : {
+            "type" : "string"
+          },
+          "lastWarning" : {
+            "type" : "string"
+          },
+          "canCancel" : {
+            "type" : "boolean"
+          },
+          "canRelease" : {
+            "type" : "boolean"
+          }
+        }
+      },
+      "SendChatMessageRequest" : {
+        "type" : "object",
+        "properties" : {
+          "message" : {
+            "type" : "string",
+            "maxLength" : 1000,
+            "minLength" : 0
+          }
+        },
+        "required" : [ "message" ]
+      },
+      "TinkoffReceiptData" : {
+        "type" : "object",
+        "properties" : {
+          "amount" : {
+            "type" : "number"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "recipient" : {
+            "type" : "string"
+          },
+          "phone" : {
+            "type" : "string"
+          },
+          "bank" : {
+            "type" : "string"
+          }
+        }
+      },
+      "TinkoffReceiptValidationResult" : {
+        "type" : "object",
+        "properties" : {
+          "valid" : {
+            "type" : "boolean"
+          },
+          "receipt" : {
+            "$ref" : "#/components/schemas/TinkoffReceiptData"
+          },
+          "errors" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "TinkoffReceiptVerificationRequest" : {
+        "type" : "object",
+        "properties" : {
+          "amount" : {
+            "type" : "number"
+          },
+          "recipient" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "phone" : {
+            "type" : "string",
+            "minLength" : 1
+          },
+          "bank" : {
+            "type" : "string",
+            "minLength" : 1
+          }
+        },
+        "required" : [ "amount", "bank", "phone", "recipient" ]
+      },
+      "TinkoffMailReceiptValidationResult" : {
+        "type" : "object",
+        "properties" : {
+          "valid" : {
+            "type" : "boolean"
+          },
+          "recipientPhoneMatches" : {
+            "type" : "boolean"
+          },
+          "receiptKey" : {
+            "type" : "string"
+          },
+          "messageId" : {
+            "type" : "string"
+          },
+          "subject" : {
+            "type" : "string"
+          },
+          "from" : {
+            "type" : "string"
+          },
+          "receivedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "attachmentName" : {
+            "type" : "string"
+          },
+          "receipt" : {
+            "$ref" : "#/components/schemas/TinkoffReceiptData"
+          },
+          "errors" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          }
+        }
+      },
+      "SystemStatusResponse" : {
+        "type" : "object",
+        "properties" : {
+          "bybitApiAvailable" : {
+            "type" : "boolean"
+          },
+          "bybitMode" : {
+            "type" : "string"
+          },
+          "gmailImapsAvailable" : {
+            "type" : "boolean"
+          },
+          "bybitAdId" : {
+            "type" : "string"
+          },
+          "adPublished" : {
+            "type" : "boolean"
+          },
+          "currentRate" : {
+            "type" : "number"
+          },
+          "currentRateSourcePosition" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "referenceRate7" : {
+            "type" : "number"
+          },
+          "referenceRate7WithFee" : {
+            "type" : "number"
+          },
+          "referenceRate15" : {
+            "type" : "number"
+          },
+          "currentMinRub" : {
+            "type" : "number"
+          },
+          "currentMaxRub" : {
+            "type" : "number"
+          },
+          "currentQuantityUsdt" : {
+            "type" : "number"
+          },
+          "currentDescription" : {
+            "type" : "string"
+          },
+          "availableUsdtBalance" : {
+            "type" : "number"
+          },
+          "availableRubBalance" : {
+            "type" : "number"
+          },
+          "lastSystemError" : {
+            "type" : "string"
+          },
+          "bybitLastCheckedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastUpdatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ChatMessageLogResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "string"
+          },
+          "bybitOrderId" : {
+            "type" : "string"
+          },
+          "messageIndex" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "messageText" : {
+            "type" : "string"
+          },
+          "direction" : {
+            "type" : "string"
+          },
+          "authorName" : {
+            "type" : "string"
+          },
+          "contentType" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "error" : {
+            "type" : "string"
+          }
+        }
+      },
+      "EmailReceiptCheckResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "bybitOrderId" : {
+            "type" : "string"
+          },
+          "emailMessageId" : {
+            "type" : "string"
+          },
+          "emailFrom" : {
+            "type" : "string"
+          },
+          "emailSubject" : {
+            "type" : "string"
+          },
+          "emailReceivedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "pdfFilename" : {
+            "type" : "string"
+          },
+          "pdfAvailable" : {
+            "type" : "boolean"
+          },
+          "parsedStatus" : {
+            "type" : "string"
+          },
+          "parsedAmountRub" : {
+            "type" : "number"
+          },
+          "parsedRecipientPhone" : {
+            "type" : "string"
+          },
+          "parsedRecipientBank" : {
+            "type" : "string"
+          },
+          "parsedRecipientName" : {
+            "type" : "string"
+          },
+          "parsedOperationDate" : {
+            "type" : "string"
+          },
+          "parsedOperationId" : {
+            "type" : "string"
+          },
+          "parsedReceiptNumber" : {
+            "type" : "string"
+          },
+          "verificationStatus" : {
+            "type" : "string"
+          },
+          "verificationError" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "WithdrawalDetailsResponse" : {
+        "type" : "object",
+        "properties" : {
+          "withdrawal" : {
+            "$ref" : "#/components/schemas/WithdrawalResponse"
+          },
+          "events" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/WithdrawalEventResponse"
+            }
+          },
+          "chatMessages" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ChatMessageLogResponse"
+            }
+          },
+          "receiptChecks" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EmailReceiptCheckResponse"
+            }
+          }
+        }
+      },
+      "WithdrawalEventResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "eventType" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "payloadJson" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ForeignBybitOrderResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "bybitOrderId" : {
+            "type" : "string"
+          },
+          "amountRub" : {
+            "type" : "number"
+          },
+          "bybitStatus" : {
+            "type" : "string"
+          },
+          "reason" : {
+            "type" : "string"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "updatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "BankResponse" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AuthenticatedUserResponse" : {
+        "type" : "object",
+        "properties" : {
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CsrfToken" : {
+        "type" : "object",
+        "properties" : {
+          "token" : {
+            "type" : "string"
+          },
+          "parameterName" : {
+            "type" : "string"
+          },
+          "headerName" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CsrfTokenResponse" : {
+        "type" : "object",
+        "properties" : {
+          "headerName" : {
+            "type" : "string"
+          },
+          "token" : {
+            "type" : "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -94,6 +94,24 @@ docker compose -f compose.prod.yml down
 ./mvnw test
 ```
 
+`./mvnw test` также генерирует актуальный OpenAPI-контракт в `docs/openapi.json` из `/v3/api-docs`.
+Этот файл нельзя редактировать вручную. Для точечной регенерации без полного прогона тестов используйте:
+
+```bash
+./mvnw -Dtest=OpenApiDocumentationTest test
+# или
+bash scripts/generate-openapi.sh
+```
+
+В PowerShell:
+
+```powershell
+.\scripts\generate-openapi.ps1
+```
+
+Если изменение backend затрагивает frontend-контракт или поведение API, добавьте отдельную строку в
+`docs/frontend-inbox.md`. Frontend после обработки удалит только свою обработанную строку.
+
 ## CI/CD
 
 Workflow `.github/workflows/deploy-backend.yml` запускается при каждом push в
@@ -102,12 +120,13 @@ Workflow `.github/workflows/deploy-backend.yml` запускается при к
 Что делает pipeline:
 
 1. прогоняет `./mvnw test`;
-2. валидирует production Compose-конфиг на фейковых секретах;
-3. собирает Docker image;
-4. заходит на VPS по SSH;
-5. делает fast-forward pull `master`;
-6. пересобирает и перезапускает backend;
-7. ждёт Docker healthcheck и проверяет `GET /api/auth/csrf`.
+2. проверяет, что `docs/openapi.json` не отличается от сгенерированного контракта;
+3. валидирует production Compose-конфиг на фейковых секретах;
+4. собирает Docker image;
+5. заходит на VPS по SSH;
+6. делает fast-forward pull `master`;
+7. пересобирает и перезапускает backend;
+8. ждёт Docker healthcheck и проверяет `GET /api/auth/csrf`.
 
 Если новый backend не проходит healthcheck или smoke-check, deploy-скрипт
 пытается откатить контейнер на предыдущий Docker image. Миграции БД назад
