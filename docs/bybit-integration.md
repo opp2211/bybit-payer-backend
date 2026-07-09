@@ -52,6 +52,20 @@ Live Bybit checks, if they are ever needed, should be named `*ManualTests` or
 `*LiveTests`. Maven Surefire excludes these patterns from the normal
 `./mvnw test` run, so GitHub Actions can deploy without touching real Bybit.
 
+To inspect the raw Bybit chat response for a specific order, set real Bybit
+credentials and run the manual test explicitly:
+
+```powershell
+$env:BYBIT_API_KEY = "<key>"
+$env:BYBIT_API_SECRET = "<secret>"
+$env:BYBIT_BASE_URL = "https://api.bybit.com"
+./mvnw -Dtest=BybitOrderChatRawManualTests#printsRawOrderChatMessages test
+```
+
+The default order id is `2074865336971419648`. It can be overridden with
+`-Dbybit.chat.order-id=<orderId>`. Pagination uses `-Dbybit.chat.page-size=30`
+and `-Dbybit.chat.max-pages=20` by default.
+
 ## Used Endpoints
 
 - `POST /v5/p2p/item/online` — get public ads and take the configured 1-based ad index for rate.
