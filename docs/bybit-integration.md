@@ -62,7 +62,8 @@ Live Bybit checks, if they are ever needed, should be named `*ManualTests` or
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
 - `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
-- `POST /v5/p2p/order/message/send` — send requisites to order chat.
+- `POST /v5/p2p/order/message/send` — send requisites and operator messages to order chat.
+- `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
 Receipt verification must match the parsed status as a complete normalized value before calling
@@ -105,5 +106,10 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
+
+Chat messages are not stored locally. Outgoing messages are sent directly to
+`/v5/p2p/order/message/send`, and withdrawal details read chat history only from
+`/v5/p2p/order/message/listpage`. If Bybit chat history is unavailable, the API
+returns an error instead of falling back to cached local messages.
 
 Foreign orders are observation-only. They are shown while present in the active Bybit order list and removed locally after they disappear from that list. The application does not submit cancellation requests for them.

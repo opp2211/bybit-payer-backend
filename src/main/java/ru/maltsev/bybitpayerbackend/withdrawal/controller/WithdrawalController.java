@@ -4,6 +4,7 @@ import java.util.List;
 import java.nio.charset.StandardCharsets;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -28,15 +29,11 @@ import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 
 @RestController
 @RequestMapping("/api/withdrawals")
+@RequiredArgsConstructor
 public class WithdrawalController {
 
     private final WithdrawalService withdrawalService;
     private final BybitChatService chatService;
-
-    public WithdrawalController(WithdrawalService withdrawalService, BybitChatService chatService) {
-        this.withdrawalService = withdrawalService;
-        this.chatService = chatService;
-    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

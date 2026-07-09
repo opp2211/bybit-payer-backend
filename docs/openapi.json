@@ -1002,10 +1002,10 @@
       "CsrfToken" : {
         "type" : "object",
         "properties" : {
-          "token" : {
+          "parameterName" : {
             "type" : "string"
           },
-          "parameterName" : {
+          "token" : {
             "type" : "string"
           },
           "headerName" : {

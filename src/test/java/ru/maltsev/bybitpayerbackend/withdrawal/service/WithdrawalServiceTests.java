@@ -16,7 +16,6 @@ import ru.maltsev.bybitpayerbackend.bank.service.BankService;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
-import ru.maltsev.bybitpayerbackend.bybit.repository.BybitChatMessageLogRepository;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementManager;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
