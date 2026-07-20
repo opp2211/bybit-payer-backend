@@ -7,6 +7,8 @@ public record WithdrawalEventResponse(
         String eventType,
         String message,
         String payloadJson,
+        String actorType,
+        String actorUsername,
         Instant createdAt
 ) {
 }

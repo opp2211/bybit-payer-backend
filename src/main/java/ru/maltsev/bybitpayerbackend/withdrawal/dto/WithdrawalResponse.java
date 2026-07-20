@@ -5,6 +5,7 @@ import java.time.Instant;
 
 public record WithdrawalResponse(
         Long id,
+        String publicId,
         BigDecimal amountRub,
         String recipientPhone,
         String recipientBank,
@@ -32,6 +33,7 @@ public record WithdrawalResponse(
         Instant cancelledAt,
         String lastError,
         String lastWarning,
+        String createdByUsername,
         boolean canCancel,
         boolean canRelease
 ) {

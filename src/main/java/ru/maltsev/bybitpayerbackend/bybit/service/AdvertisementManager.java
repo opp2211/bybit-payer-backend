@@ -1,6 +1,7 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -8,10 +9,14 @@ import org.springframework.util.StringUtils;
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitManagedAdStateEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.AdUpdateCommand;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitManagedAdStateRepository;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
@@ -23,6 +28,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -37,11 +43,14 @@ public class AdvertisementManager {
                     " 3 лица по СБП ___ Понадобится чек с офф. почты" +
                     " банка мне на почту";
 
-    private final ReentrantLock lock = new ReentrantLock();
+    private final Map<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final WithdrawalRequestRepository withdrawalRepository;
     private final BybitManagedAdStateRepository adStateRepository;
+    private final WorkspaceRepository workspaceRepository;
     private final WithdrawalEventService eventService;
     private final BybitGateway bybitGateway;
+    private final BybitCredentialsContext bybitCredentialsContext;
+    private final WorkspaceSecretService workspaceSecretService;
     private final BybitProperties bybitProperties;
     private final BusinessProperties businessProperties;
     private final Clock clock;
@@ -55,10 +64,40 @@ public class AdvertisementManager {
             BusinessProperties businessProperties,
             Clock clock
     ) {
+        this(
+                withdrawalRepository,
+                adStateRepository,
+                null,
+                eventService,
+                bybitGateway,
+                new BybitCredentialsContext(),
+                null,
+                bybitProperties,
+                businessProperties,
+                clock
+        );
+    }
+
+    @Autowired
+    public AdvertisementManager(
+            WithdrawalRequestRepository withdrawalRepository,
+            BybitManagedAdStateRepository adStateRepository,
+            WorkspaceRepository workspaceRepository,
+            WithdrawalEventService eventService,
+            BybitGateway bybitGateway,
+            BybitCredentialsContext bybitCredentialsContext,
+            WorkspaceSecretService workspaceSecretService,
+            BybitProperties bybitProperties,
+            BusinessProperties businessProperties,
+            Clock clock
+    ) {
         this.withdrawalRepository = withdrawalRepository;
         this.adStateRepository = adStateRepository;
+        this.workspaceRepository = workspaceRepository;
         this.eventService = eventService;
         this.bybitGateway = bybitGateway;
+        this.bybitCredentialsContext = bybitCredentialsContext;
+        this.workspaceSecretService = workspaceSecretService;
         this.bybitProperties = bybitProperties;
         this.businessProperties = businessProperties;
         this.clock = clock;
@@ -66,27 +105,53 @@ public class AdvertisementManager {
 
     @Transactional
     public void rebuildPublication() {
+        if (workspaceRepository == null) {
+            rebuildPublicationLegacy();
+            return;
+        }
+        for (WorkspaceEntity workspace : workspaceRepository.findByEnabledTrueAndDeletedAtIsNullOrderByCreatedAtAscIdAsc()) {
+            try {
+                rebuildPublication(workspace);
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "Managed advertisement synchronization failed for workspace {}: {}",
+                        workspace.getPublicId(),
+                        exception.getMessage()
+                );
+            }
+        }
+    }
+
+    @Transactional
+    public void rebuildPublication(WorkspaceEntity workspace) {
+        ReentrantLock lock = lockFor(workspace);
         lock.lock();
         try {
-            Instant now = Instant.now(clock);
-            List<WithdrawalRequestEntity> candidates = withdrawalRepository
-                    .findByStatusInOrderByCreatedAtAscIdAsc(WithdrawalStatus.QUEUE_MANAGED_STATUSES);
+            bybitCredentialsContext.runWith(workspaceSecretService.bybitCredentials(workspace), () -> {
+                Instant now = Instant.now(clock);
+                List<WithdrawalRequestEntity> candidates = withdrawalRepository
+                        .findByWorkspaceAndStatusInOrderByCreatedAtAscIdAsc(
+                                workspace,
+                                WithdrawalStatus.QUEUE_MANAGED_STATUSES
+                        );
 
-            List<WithdrawalRequestEntity> published = applyQueueRules(candidates, now);
-            withdrawalRepository.saveAll(candidates);
+                List<WithdrawalRequestEntity> published = applyQueueRules(candidates, now);
+                withdrawalRepository.saveAll(candidates);
 
-            int initialRatePosition = initialRatePosition();
-            AdvertisementSnapshot snapshot = buildSnapshot(published, initialRatePosition);
-            ensureBalance(snapshot);
-            persistAndPushAdState(snapshot, now, initialRatePosition);
-            log.info(
-                    "Managed advertisement synchronized: published={}, candidates={}, publishedWithdrawals={}, rate={}, quantityUsdt={}",
-                    snapshot.published(),
-                    candidates.size(),
-                    published.size(),
-                    snapshot.rate(),
-                    snapshot.quantityUsdt()
-            );
+                int initialRatePosition = initialRatePosition();
+                AdvertisementSnapshot snapshot = buildSnapshot(published, initialRatePosition);
+                ensureBalance(snapshot);
+                persistAndPushAdState(workspace, snapshot, now, initialRatePosition);
+                log.info(
+                        "Managed advertisement synchronized: workspace={}, published={}, candidates={}, publishedWithdrawals={}, rate={}, quantityUsdt={}",
+                        workspace.getPublicId(),
+                        snapshot.published(),
+                        candidates.size(),
+                        published.size(),
+                        snapshot.rate(),
+                        snapshot.quantityUsdt()
+                );
+            });
         } catch (BusinessException exception) {
             log.warn(
                     "Managed advertisement synchronization rejected: message={}, details={}",
@@ -108,29 +173,47 @@ public class AdvertisementManager {
     )
     @Transactional
     public void refreshPublicationRate() {
+        if (workspaceRepository == null) {
+            refreshPublicationRateLegacy();
+            return;
+        }
+        for (WorkspaceEntity workspace : workspaceRepository.findByEnabledTrueAndDeletedAtIsNullOrderByCreatedAtAscIdAsc()) {
+            refreshPublicationRate(workspace);
+        }
+    }
+
+    private void refreshPublicationRate(WorkspaceEntity workspace) {
+        ReentrantLock lock = lockFor(workspace);
         lock.lock();
         try {
-            BybitManagedAdStateEntity currentState = adStateRepository.findAll().stream()
-                    .findFirst()
-                    .orElseGet(this::newAdState);
-            int targetPosition = Optional.ofNullable(currentState.getNextRateSourcePosition())
-                    .orElse(initialRatePosition());
-            targetPosition = Math.max(minRatePosition(), Math.min(initialRatePosition(), targetPosition));
+            bybitCredentialsContext.runWith(workspaceSecretService.bybitCredentials(workspace), () -> {
+                BybitManagedAdStateEntity currentState = adStateRepository.findByWorkspace(workspace)
+                        .orElseGet(() -> newAdState(workspace));
+                int targetPosition = Optional.ofNullable(currentState.getNextRateSourcePosition())
+                        .orElse(initialRatePosition());
+                targetPosition = Math.max(minRatePosition(), Math.min(initialRatePosition(), targetPosition));
 
-            List<WithdrawalRequestEntity> published = withdrawalRepository
-                    .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK);
-            AdvertisementSnapshot snapshot = buildSnapshot(published, targetPosition);
-            ensureBalance(snapshot);
-            int nextPosition = Math.max(minRatePosition(), targetPosition - 1);
-            persistAndPushAdState(snapshot, Instant.now(clock), nextPosition);
-            log.info(
-                    "Managed advertisement rate refreshed: position={}, nextPosition={}, rate={}",
-                    targetPosition,
-                    nextPosition,
-                    snapshot.rate()
-            );
+                List<WithdrawalRequestEntity> published = withdrawalRepository
+                        .findByWorkspaceAndStatusOrderByCreatedAtAscIdAsc(workspace, WithdrawalStatus.IN_WORK);
+                AdvertisementSnapshot snapshot = buildSnapshot(published, targetPosition);
+                ensureBalance(snapshot);
+                int nextPosition = Math.max(minRatePosition(), targetPosition - 1);
+                persistAndPushAdState(workspace, snapshot, Instant.now(clock), nextPosition);
+                log.info(
+                        "Managed advertisement rate refreshed: workspace={}, position={}, nextPosition={}, rate={}",
+                        workspace.getPublicId(),
+                        targetPosition,
+                        nextPosition,
+                        snapshot.rate()
+                );
+            });
         } catch (RuntimeException exception) {
-            log.error("Managed advertisement rate refresh failed: {}", exception.getMessage(), exception);
+            log.error(
+                    "Managed advertisement rate refresh failed: workspace={}, message={}",
+                    workspace.getPublicId(),
+                    exception.getMessage(),
+                    exception
+            );
         } finally {
             lock.unlock();
         }
@@ -140,7 +223,54 @@ public class AdvertisementManager {
     public BybitManagedAdStateEntity getCurrentState() {
         return adStateRepository.findAll().stream()
                 .findFirst()
-                .orElseGet(this::newAdState);
+                .orElseGet(this::newLegacyAdState);
+    }
+
+    @Transactional(readOnly = true)
+    public BybitManagedAdStateEntity getCurrentState(WorkspaceEntity workspace) {
+        return adStateRepository.findByWorkspace(workspace)
+                .orElseGet(() -> newAdState(workspace));
+    }
+
+    private void rebuildPublicationLegacy() {
+        ReentrantLock lock = locks.computeIfAbsent(0L, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            Instant now = Instant.now(clock);
+            List<WithdrawalRequestEntity> candidates = withdrawalRepository
+                    .findByStatusInOrderByCreatedAtAscIdAsc(WithdrawalStatus.QUEUE_MANAGED_STATUSES);
+            List<WithdrawalRequestEntity> published = applyQueueRules(candidates, now);
+            withdrawalRepository.saveAll(candidates);
+            int initialRatePosition = initialRatePosition();
+            AdvertisementSnapshot snapshot = buildSnapshot(published, initialRatePosition);
+            ensureBalance(snapshot);
+            persistAndPushLegacyAdState(snapshot, now, initialRatePosition);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void refreshPublicationRateLegacy() {
+        ReentrantLock lock = locks.computeIfAbsent(0L, ignored -> new ReentrantLock());
+        lock.lock();
+        try {
+            BybitManagedAdStateEntity currentState = adStateRepository.findAll().stream()
+                    .findFirst()
+                    .orElseGet(this::newLegacyAdState);
+            int targetPosition = Optional.ofNullable(currentState.getNextRateSourcePosition())
+                    .orElse(initialRatePosition());
+            targetPosition = Math.max(minRatePosition(), Math.min(initialRatePosition(), targetPosition));
+            List<WithdrawalRequestEntity> published = withdrawalRepository
+                    .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK);
+            AdvertisementSnapshot snapshot = buildSnapshot(published, targetPosition);
+            ensureBalance(snapshot);
+            int nextPosition = Math.max(minRatePosition(), targetPosition - 1);
+            persistAndPushLegacyAdState(snapshot, Instant.now(clock), nextPosition);
+        } catch (RuntimeException exception) {
+            log.error("Managed advertisement rate refresh failed: {}", exception.getMessage(), exception);
+        } finally {
+            lock.unlock();
+        }
     }
 
     private List<WithdrawalRequestEntity> applyQueueRules(List<WithdrawalRequestEntity> candidates, Instant now) {
@@ -263,13 +393,56 @@ public class AdvertisementManager {
     }
 
     private void persistAndPushAdState(
+            WorkspaceEntity workspace,
+            AdvertisementSnapshot snapshot,
+            Instant now,
+            int nextRateSourcePosition
+    ) {
+        BybitManagedAdStateEntity state = adStateRepository.findByWorkspace(workspace)
+                .orElseGet(() -> newAdState(workspace));
+        boolean wasPublished = state.isPublished();
+        state.setWorkspace(workspace);
+        state.setBybitAdId(workspace.getBybitP2pAdId());
+        state.setPublished(snapshot.published());
+        state.setLastRate(snapshot.rate());
+        state.setLastRateSourcePosition(snapshot.rateSourcePosition());
+        state.setNextRateSourcePosition(nextRateSourcePosition);
+        state.setReferenceRate7(snapshot.referenceRate7());
+        state.setReferenceRate7WithFee(snapshot.referenceRate7WithFee());
+        state.setReferenceRate15(snapshot.referenceRate15());
+        state.setLastMinRub(snapshot.minRub());
+        state.setLastMaxRub(snapshot.maxRub());
+        state.setLastQuantityUsdt(snapshot.quantityUsdt());
+        state.setLastDescription(snapshot.description());
+        state.setLastUpdatedAt(now);
+        state.setLastError(null);
+
+        AdUpdateCommand command = new AdUpdateCommand(
+                state.getBybitAdId(),
+                state.isPublished(),
+                state.getLastRate(),
+                state.getLastMinRub(),
+                state.getLastMaxRub(),
+                state.getLastQuantityUsdt(),
+                state.getLastDescription()
+        );
+        if (snapshot.published()) {
+            bybitGateway.updateManagedAd(command);
+        } else if (wasPublished && StringUtils.hasText(state.getBybitAdId())) {
+            bybitGateway.unpublishManagedAd(state.getBybitAdId());
+        }
+
+        adStateRepository.save(state);
+    }
+
+    private void persistAndPushLegacyAdState(
             AdvertisementSnapshot snapshot,
             Instant now,
             int nextRateSourcePosition
     ) {
         BybitManagedAdStateEntity state = adStateRepository.findAll().stream()
                 .findFirst()
-                .orElseGet(this::newAdState);
+                .orElseGet(this::newLegacyAdState);
         boolean wasPublished = state.isPublished();
         state.setBybitAdId(bybitProperties.getP2pAdId());
         state.setPublished(snapshot.published());
@@ -304,12 +477,25 @@ public class AdvertisementManager {
         adStateRepository.save(state);
     }
 
-    private BybitManagedAdStateEntity newAdState() {
+    private BybitManagedAdStateEntity newAdState(WorkspaceEntity workspace) {
+        BybitManagedAdStateEntity state = new BybitManagedAdStateEntity();
+        state.setWorkspace(workspace);
+        state.setBybitAdId(workspace.getBybitP2pAdId());
+        state.setPublished(false);
+        state.setNextRateSourcePosition(initialRatePosition());
+        return state;
+    }
+
+    private BybitManagedAdStateEntity newLegacyAdState() {
         BybitManagedAdStateEntity state = new BybitManagedAdStateEntity();
         state.setBybitAdId(bybitProperties.getP2pAdId());
         state.setPublished(false);
         state.setNextRateSourcePosition(initialRatePosition());
         return state;
+    }
+
+    private ReentrantLock lockFor(WorkspaceEntity workspace) {
+        return locks.computeIfAbsent(workspace.getId(), ignored -> new ReentrantLock());
     }
 
     private int initialRatePosition() {

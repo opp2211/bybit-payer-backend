@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Email;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -14,6 +15,7 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "auth")
 public record AuthProperties(
         @NotBlank String username,
+        @NotBlank @Email String email,
         @NotBlank
         @Pattern(
                 regexp = "\\{bcrypt}\\$2[aby]\\$.*",

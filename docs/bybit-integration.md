@@ -1,8 +1,21 @@
 # Bybit P2P Integration
 
 The application uses the real HTTP gateway with HMAC-SHA256 request signing.
+Bybit credentials are workspace-scoped: every workspace stores its own API key,
+API secret, and P2P ad id. Secrets are encrypted in the database with
+`APP_ENCRYPTION_KEY`.
 
-Required env for real gateway:
+Generate `APP_ENCRYPTION_KEY` as a base64 encoded 32-byte value and keep it
+stable between deployments. If the key changes, previously saved workspace
+secrets cannot be decrypted.
+
+Required env for encrypted workspace secrets:
+
+```env
+APP_ENCRYPTION_KEY=
+```
+
+Legacy bootstrap env for the initial `ExPrime` workspace:
 
 ```env
 BYBIT_API_KEY=
@@ -14,6 +27,11 @@ BYBIT_ORDER_SOURCE_SIDE=SELL
 BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
 ```
+
+`BYBIT_API_KEY`, `BYBIT_API_SECRET`, and `BYBIT_P2P_AD_ID` are no longer the
+single global account used by all users. They are read only during bootstrap to
+create/migrate the initial `ExPrime` workspace. New workspaces are created via
+the workspace API/UI and must pass Bybit readiness before they are saved.
 
 `BYBIT_BASE_URL` is required and must contain the Bybit API origin, for example
 `https://api.bybit.com` or `https://api-testnet.bybit.com`. The gateway trims trailing slashes.

@@ -19,6 +19,7 @@ receipt:
 
 auth:
   username: operator
+  email: operator@example.test
   password-hash: "{bcrypt}$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG"
   remember-me-key: test-remember-me-key-at-least-32-characters
   remember-me-validity: 24855d
@@ -28,3 +29,6 @@ auth:
 
 bybit:
   base-url: ${BYBIT_BASE_URL:}
+
+app:
+  encryption-key: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=

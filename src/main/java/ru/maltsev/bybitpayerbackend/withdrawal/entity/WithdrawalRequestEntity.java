@@ -17,6 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
+import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 
 @Getter
@@ -29,6 +31,17 @@ public class WithdrawalRequestEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(name = "public_id", length = 7)
+    private String publicId;
+
+    @ManyToOne(optional = false, fetch = jakarta.persistence.FetchType.LAZY)
+    @JoinColumn(name = "workspace_id")
+    private WorkspaceEntity workspace;
+
+    @ManyToOne(fetch = jakarta.persistence.FetchType.LAZY)
+    @JoinColumn(name = "created_by_user_id")
+    private UserEntity createdBy;
 
     @Column(name = "amount_rub", nullable = false, precision = 19, scale = 0)
     private BigDecimal amountRub;

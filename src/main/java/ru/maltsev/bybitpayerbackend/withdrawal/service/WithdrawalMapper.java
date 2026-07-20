@@ -17,6 +17,7 @@ public class WithdrawalMapper {
     public WithdrawalResponse toResponse(WithdrawalRequestEntity entity) {
         return new WithdrawalResponse(
                 entity.getId(),
+                entity.getPublicId(),
                 entity.getAmountRub(),
                 entity.getRecipientPhone(),
                 entity.getRecipientBank().getCode(),
@@ -44,6 +45,7 @@ public class WithdrawalMapper {
                 entity.getCancelledAt(),
                 entity.getLastError(),
                 entity.getLastWarning(),
+                entity.getCreatedBy() == null ? null : entity.getCreatedBy().getUsername(),
                 entity.getStatus().canBeCancelled(),
                 entity.getStatus().canBeReleased() && entity.getBybitOrderId() != null
         );
@@ -66,6 +68,8 @@ public class WithdrawalMapper {
                 entity.getEventType().name(),
                 entity.getMessage(),
                 entity.getPayloadJson(),
+                entity.getActorType().name(),
+                entity.getActor() == null ? null : entity.getActor().getUsername(),
                 entity.getCreatedAt()
         );
     }

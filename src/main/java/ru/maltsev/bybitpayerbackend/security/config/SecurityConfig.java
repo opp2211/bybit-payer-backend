@@ -8,12 +8,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -34,15 +31,6 @@ public class SecurityConfig {
     @Bean
     PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
-    }
-
-    @Bean
-    UserDetailsService userDetailsService(AuthProperties properties) {
-        UserDetails operator = User.withUsername(properties.username())
-                .password(properties.passwordHash())
-                .roles("OPERATOR")
-                .build();
-        return new InMemoryUserDetailsManager(operator);
     }
 
     @Bean
@@ -85,8 +73,10 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/auth/csrf",
                                 "/api/auth/login",
+                                "/api/auth/register",
                                 "/actuator/health/**"
                         ).permitAll()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .csrf(csrf -> csrf
