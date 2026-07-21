@@ -19,6 +19,73 @@ fail() {
   exit 1
 }
 
+is_valid_app_encryption_key() {
+  local key="${1:-}" decoded_bytes
+
+  if [[ -z "${key//[[:space:]]/}" ]]; then
+    return 1
+  fi
+
+  if ! decoded_bytes="$(printf '%s' "$key" | base64 --decode 2>/dev/null | wc -c | tr -d ' ')"; then
+    return 1
+  fi
+
+  [[ "$decoded_bytes" == "32" ]]
+}
+
+set_env_value() {
+  local name="$1"
+  local value="$2"
+  local env_file="$3"
+  local tmp_file
+
+  tmp_file="$(mktemp)"
+  awk -v name="$name" -v value="$value" '
+    BEGIN {
+      prefix = name "="
+      replaced = 0
+    }
+    index($0, prefix) == 1 {
+      if (!replaced) {
+        print prefix value
+        replaced = 1
+      }
+      next
+    }
+    {
+      print
+    }
+    END {
+      if (!replaced) {
+        print ""
+        print prefix value
+      }
+    }
+  ' "$env_file" > "$tmp_file"
+  cat "$tmp_file" > "$env_file"
+  rm -f "$tmp_file"
+}
+
+ensure_app_encryption_key() {
+  local env_file=".env"
+  local current_key generated_key
+
+  current_key="$(grep -m 1 '^APP_ENCRYPTION_KEY=' "$env_file" | cut -d= -f2- || true)"
+  if is_valid_app_encryption_key "$current_key"; then
+    return 0
+  fi
+
+  if [[ -n "${current_key//[[:space:]]/}" ]]; then
+    fail "APP_ENCRYPTION_KEY in ${APP_DIR}/.env must be a base64 encoded 32 byte key"
+  fi
+
+  command -v openssl >/dev/null 2>&1 || fail "openssl is required to generate APP_ENCRYPTION_KEY"
+  generated_key="$(openssl rand -base64 32)"
+  set_env_value "APP_ENCRYPTION_KEY" "$generated_key" "$env_file"
+  chmod 600 "$env_file" || true
+  log "Generated APP_ENCRYPTION_KEY in ${APP_DIR}/.env"
+}
+
 wait_for_backend_health() {
   local phase="${1:-deploy}"
   local container_id status deadline
@@ -116,6 +183,7 @@ cd "$APP_DIR"
 [[ -d .git ]] || fail "APP_DIR is not a git repository: ${APP_DIR}"
 [[ -f "$COMPOSE_FILE" ]] || fail "Compose file was not found: ${COMPOSE_FILE}"
 [[ -f .env ]] || fail ".env was not found in ${APP_DIR}"
+ensure_app_encryption_key
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
   fail "Tracked local changes found on the server. Commit or revert them before deploy."
