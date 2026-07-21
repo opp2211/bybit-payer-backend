@@ -48,6 +48,7 @@ jobs:
           AUTH_USERNAME: operator
           AUTH_PASSWORD_HASH: '{bcrypt}$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG'
           AUTH_REMEMBER_ME_KEY: ci-remember-me-key-at-least-32-characters
+          APP_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
           BYBIT_API_KEY: ci-bybit-api-key
           BYBIT_API_SECRET: ci-bybit-api-secret
           BYBIT_BASE_URL: https://api.bybit.example
