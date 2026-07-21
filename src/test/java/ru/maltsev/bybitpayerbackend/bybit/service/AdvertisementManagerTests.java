@@ -31,6 +31,63 @@ import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 class AdvertisementManagerTests {
 
     @Test
+    void buildsSingleWithdrawalPreviewFromCurrentRate() {
+        AdvertisementManager manager = new AdvertisementManager(
+                mock(WithdrawalRequestRepository.class),
+                mock(BybitManagedAdStateRepository.class),
+                mock(WithdrawalEventService.class),
+                mock(BybitGateway.class),
+                new BybitProperties(),
+                new BusinessProperties(),
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        AdvertisementPreview preview = manager.buildSingleWithdrawalPreview(
+                new BigDecimal("12345"),
+                PayerBankType.TBANK_AUTO,
+                WithdrawalMethod.CARD_NUMBER,
+                false,
+                true,
+                new BigDecimal("95.50")
+        );
+
+        assertThat(preview.rate()).isEqualByComparingTo("95.50");
+        assertThat(preview.minRub()).isEqualByComparingTo("1000");
+        assertThat(preview.maxRub()).isEqualByComparingTo("12345");
+        assertThat(preview.quantityUsdt()).isEqualByComparingTo("129.2671");
+        assertThat(preview.description()).contains("12345");
+        assertThat(preview.description()).doesNotContain("12345 /");
+    }
+
+    @Test
+    void keepsDescriptionWhenCurrentRateIsMissing() {
+        AdvertisementManager manager = new AdvertisementManager(
+                mock(WithdrawalRequestRepository.class),
+                mock(BybitManagedAdStateRepository.class),
+                mock(WithdrawalEventService.class),
+                mock(BybitGateway.class),
+                new BybitProperties(),
+                new BusinessProperties(),
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        AdvertisementPreview preview = manager.buildSingleWithdrawalPreview(
+                new BigDecimal("5000"),
+                PayerBankType.ANY_BANK,
+                WithdrawalMethod.SBP,
+                true,
+                false,
+                null
+        );
+
+        assertThat(preview.rate()).isNull();
+        assertThat(preview.quantityUsdt()).isNull();
+        assertThat(preview.minRub()).isEqualByComparingTo("1000");
+        assertThat(preview.maxRub()).isEqualByComparingTo("10000");
+        assertThat(preview.description()).contains("5000");
+    }
+
+    @Test
     void refreshesRateFromFifteenthPositionThenMovesTowardSeventh() {
         WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
         BybitManagedAdStateRepository stateRepository = mock(BybitManagedAdStateRepository.class);

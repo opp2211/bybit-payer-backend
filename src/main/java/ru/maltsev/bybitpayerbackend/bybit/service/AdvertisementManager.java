@@ -233,6 +233,36 @@ public class AdvertisementManager {
                 .orElseGet(() -> newAdState(workspace));
     }
 
+    public AdvertisementPreview buildSingleWithdrawalPreview(
+            BigDecimal amountRub,
+            PayerBankType payerBankType,
+            WithdrawalMethod withdrawalMethod,
+            boolean thirdPartyTransfer,
+            boolean recipientCardTbank,
+            BigDecimal rate
+    ) {
+        PayerBankType effectivePayerBankType = PayerBankType.effective(payerBankType);
+        WithdrawalMethod effectiveWithdrawalMethod = WithdrawalMethod.effective(withdrawalMethod);
+        BigDecimal minRub = amountRub.min(bybitProperties.getDefaultMinRub());
+        BigDecimal maxRub = amountRub.max(bybitProperties.getDefaultMaxRub());
+        BigDecimal quantityUsdt = rate == null || rate.signum() <= 0
+                ? null
+                : maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
+        String advertisementTail = WithdrawalPaymentRules.advertisementTail(
+                effectivePayerBankType,
+                effectiveWithdrawalMethod,
+                thirdPartyTransfer,
+                recipientCardTbank
+        );
+        String description = AD_DESCRIPTION_TEMPLATE.formatted(
+                effectivePayerBankType.getAdvertisementIntro(),
+                formatRubAmount(amountRub),
+                advertisementTail
+        );
+
+        return new AdvertisementPreview(rate, minRub, maxRub, quantityUsdt, description);
+    }
+
     private void rebuildPublicationLegacy() {
         ReentrantLock lock = locks.computeIfAbsent(0L, ignored -> new ReentrantLock());
         lock.lock();

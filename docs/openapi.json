@@ -249,6 +249,42 @@
         }
       }
     },
+    "/api/workspaces/{workspacePublicId}/withdrawals/preview" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "previewAdvertisement",
+        "parameters" : [ {
+          "name" : "workspacePublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateWithdrawalRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalAdvertisementPreviewResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{workspacePublicId}/system/resync" : {
       "post" : {
         "tags" : [ "system-controller" ],
@@ -1235,6 +1271,26 @@
           }
         },
         "required" : [ "message" ]
+      },
+      "WithdrawalAdvertisementPreviewResponse" : {
+        "type" : "object",
+        "properties" : {
+          "rate" : {
+            "type" : "number"
+          },
+          "minRub" : {
+            "type" : "number"
+          },
+          "maxRub" : {
+            "type" : "number"
+          },
+          "quantityUsdt" : {
+            "type" : "number"
+          },
+          "description" : {
+            "type" : "string"
+          }
+        }
       },
       "SystemStatusResponse" : {
         "type" : "object",

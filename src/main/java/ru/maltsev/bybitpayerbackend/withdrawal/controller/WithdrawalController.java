@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.bybit.dto.SendChatMessageRequest;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalService;
@@ -42,6 +43,14 @@ public class WithdrawalController {
             @Valid @RequestBody CreateWithdrawalRequest request
     ) {
         return withdrawalService.create(workspacePublicId, request);
+    }
+
+    @PostMapping("/preview")
+    public WithdrawalAdvertisementPreviewResponse previewAdvertisement(
+            @PathVariable String workspacePublicId,
+            @Valid @RequestBody CreateWithdrawalRequest request
+    ) {
+        return withdrawalService.previewAdvertisement(workspacePublicId, request);
     }
 
     @GetMapping("/active")

@@ -40,6 +40,7 @@ class OpenApiDocumentationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
                 .andExpect(jsonPath("$.paths['/api/workspaces/{workspacePublicId}/withdrawals'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/workspaces/{workspacePublicId}/withdrawals/preview'].post").exists())
                 .andExpect(jsonPath("$.paths['/api/workspaces/{workspacePublicId}/system/status'].get").exists())
                 .andReturn();
 

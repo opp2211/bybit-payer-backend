@@ -13,12 +13,14 @@ import org.springframework.transaction.annotation.Transactional;
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bank.service.BankService;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
+import ru.maltsev.bybitpayerbackend.bybit.entity.BybitManagedAdStateEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementManager;
+import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementPreview;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
@@ -31,6 +33,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
@@ -191,6 +194,39 @@ public class WithdrawalService {
                 refreshed.getStatus()
         );
         return mapper.toResponse(refreshed);
+    }
+
+    @Transactional(readOnly = true)
+    public WithdrawalAdvertisementPreviewResponse previewAdvertisement(
+            String workspacePublicId,
+            CreateWithdrawalRequest request
+    ) {
+        UserEntity currentUser = currentUserService.currentUser();
+        WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        BigDecimal amountRub = normalizer.normalizeAmount(request.amountRub());
+        PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(request.withdrawalMethod());
+        WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
+        boolean thirdPartyTransfer = Boolean.TRUE.equals(request.thirdPartyTransfer());
+        boolean recipientCardTbank = withdrawalMethod == WithdrawalMethod.CARD_NUMBER
+                && Boolean.TRUE.equals(request.recipientCardTbank());
+        BybitManagedAdStateEntity currentState = advertisementManager.getCurrentState(workspace);
+        AdvertisementPreview preview = advertisementManager.buildSingleWithdrawalPreview(
+                amountRub,
+                payerBankType,
+                withdrawalMethod,
+                thirdPartyTransfer,
+                recipientCardTbank,
+                currentState.getLastRate()
+        );
+
+        return new WithdrawalAdvertisementPreviewResponse(
+                preview.rate(),
+                preview.minRub(),
+                preview.maxRub(),
+                preview.quantityUsdt(),
+                preview.description()
+        );
     }
 
     @Transactional(readOnly = true)
