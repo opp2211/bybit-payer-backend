@@ -369,13 +369,14 @@ public class AdvertisementManager {
         String amountText = amounts.stream()
                 .map(this::formatRubAmount)
                 .collect(Collectors.joining(" / "));
-        PayerBankType payerBankType = PayerBankType.effective(published.getFirst().getPayerBankType());
-        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(published.getFirst().getWithdrawalMethod());
+        WithdrawalRequestEntity first = published.getFirst();
+        PayerBankType payerBankType = PayerBankType.effective(first.getPayerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(first.getWithdrawalMethod());
         String advertisementTail = WithdrawalPaymentRules.advertisementTail(
                 payerBankType,
                 withdrawalMethod,
-                published.getFirst().isThirdPartyTransfer(),
-                published.getFirst().isRecipientCardTbank()
+                effectiveThirdPartyTransfer(first),
+                first.isRecipientCardTbank()
         );
         String description = AD_DESCRIPTION_TEMPLATE.formatted(
                 payerBankType.getAdvertisementIntro(),
@@ -539,8 +540,12 @@ public class AdvertisementManager {
         return WithdrawalPaymentRules.queueGroupKey(
                 withdrawal.getPayerBankType(),
                 withdrawal.getWithdrawalMethod(),
-                withdrawal.isThirdPartyTransfer(),
+                effectiveThirdPartyTransfer(withdrawal),
                 withdrawal.isRecipientCardTbank()
         );
+    }
+
+    private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity withdrawal) {
+        return withdrawal.getWithdrawalMethod() == null || withdrawal.isThirdPartyTransfer();
     }
 }

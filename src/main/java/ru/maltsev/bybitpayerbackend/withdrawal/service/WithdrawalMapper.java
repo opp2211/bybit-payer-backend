@@ -20,6 +20,7 @@ public class WithdrawalMapper {
     public WithdrawalResponse toResponse(WithdrawalRequestEntity entity) {
         PayerBankType payerBankType = PayerBankType.effective(entity.getPayerBankType());
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(entity.getWithdrawalMethod());
+        boolean thirdPartyTransfer = effectiveThirdPartyTransfer(entity);
         return new WithdrawalResponse(
                 entity.getId(),
                 entity.getPublicId(),
@@ -31,7 +32,7 @@ public class WithdrawalMapper {
                 entity.getRecipientCardNumber(),
                 entity.getRecipientAccountNumber(),
                 entity.isRecipientCardTbank(),
-                entity.isThirdPartyTransfer(),
+                thirdPartyTransfer,
                 payerBankType.name(),
                 payerBankType.getTitle(),
                 withdrawalMethod.name(),
@@ -63,6 +64,10 @@ public class WithdrawalMapper {
                 entity.getStatus().canBeCancelled(),
                 entity.getStatus().canBeReleased() && entity.getBybitOrderId() != null
         );
+    }
+
+    private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity entity) {
+        return entity.getWithdrawalMethod() == null || entity.isThirdPartyTransfer();
     }
 
     private java.math.BigDecimal totalUsdt(WithdrawalRequestEntity entity) {
