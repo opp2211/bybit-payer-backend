@@ -17,6 +17,7 @@ public record WithdrawalResponse(
         boolean thirdPartyTransfer,
         String payerBankType,
         String payerBankTypeTitle,
+        boolean requireSenderFirstParty,
         String withdrawalMethod,
         String withdrawalMethodTitle,
         boolean autoReleaseEnabled,

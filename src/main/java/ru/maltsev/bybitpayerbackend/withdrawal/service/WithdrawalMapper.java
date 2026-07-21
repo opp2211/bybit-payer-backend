@@ -35,6 +35,7 @@ public class WithdrawalMapper {
                 thirdPartyTransfer,
                 payerBankType.name(),
                 payerBankType.getTitle(),
+                entity.isRequireSenderFirstParty(),
                 withdrawalMethod.name(),
                 withdrawalMethod.getTitle(),
                 WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod),

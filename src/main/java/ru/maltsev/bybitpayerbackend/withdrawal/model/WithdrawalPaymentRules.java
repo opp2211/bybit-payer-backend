@@ -42,13 +42,15 @@ public final class WithdrawalPaymentRules {
             PayerBankType payerBankType,
             WithdrawalMethod withdrawalMethod,
             boolean thirdPartyTransfer,
-            boolean recipientCardTbank
+            boolean recipientCardTbank,
+            boolean requireSenderFirstParty
     ) {
         PayerBankType effectivePayerBankType = PayerBankType.effective(payerBankType);
         WithdrawalMethod effectiveWithdrawalMethod = WithdrawalMethod.effective(withdrawalMethod);
         List<String> parts = new ArrayList<>();
         parts.add(effectivePayerBankType.name());
         parts.add(effectiveWithdrawalMethod.name());
+        parts.add(requireSenderFirstParty ? "SENDER_FIRST_PARTY" : "ANY_SENDER");
         parts.add(thirdPartyTransfer ? "THIRD_PARTY" : "PERSONAL");
         if (effectiveWithdrawalMethod == WithdrawalMethod.CARD_NUMBER) {
             parts.add(recipientCardTbank ? "TBANK_CARD" : "OTHER_CARD");

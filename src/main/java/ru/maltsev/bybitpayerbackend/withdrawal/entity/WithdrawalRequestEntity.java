@@ -78,6 +78,9 @@ public class WithdrawalRequestEntity {
     @Column(name = "payer_bank_type", nullable = false, length = 32)
     private PayerBankType payerBankType;
 
+    @Column(name = "require_sender_first_party", nullable = false)
+    private boolean requireSenderFirstParty;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 48)
     private WithdrawalStatus status;

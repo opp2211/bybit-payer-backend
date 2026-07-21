@@ -48,6 +48,7 @@ class AdvertisementManagerTests {
                 WithdrawalMethod.CARD_NUMBER,
                 false,
                 true,
+                true,
                 new BigDecimal("95.50")
         );
 
@@ -57,6 +58,11 @@ class AdvertisementManagerTests {
         assertThat(preview.quantityUsdt()).isEqualByComparingTo("129.2671");
         assertThat(preview.description()).contains("12345");
         assertThat(preview.description()).doesNotContain("12345 /");
+        assertThat(preview.description()).startsWith(
+                "Работаю только с 1 лицами "
+                        + "(Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit) ___ "
+                        + "Принимаю платеж только с Т-банка"
+        );
     }
 
     @Test
@@ -76,6 +82,7 @@ class AdvertisementManagerTests {
                 PayerBankType.ANY_BANK,
                 WithdrawalMethod.SBP,
                 true,
+                false,
                 false,
                 null
         );

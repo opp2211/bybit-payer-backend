@@ -17,6 +17,7 @@ public record CreateWithdrawalRequest(
         @NotNull Boolean recipientCardTbank,
         @NotNull Boolean thirdPartyTransfer,
         @NotNull PayerBankType payerBankType,
+        @NotNull Boolean requireSenderFirstParty,
         @NotNull WithdrawalMethod withdrawalMethod
 ) {
 }

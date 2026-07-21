@@ -32,5 +32,6 @@ class WithdrawalMapperTests {
         assertThat(response.withdrawalMethod()).isEqualTo("SBP");
         assertThat(response.withdrawalMethodTitle()).isEqualTo("СБП");
         assertThat(response.thirdPartyTransfer()).isTrue();
+        assertThat(response.requireSenderFirstParty()).isFalse();
     }
 }

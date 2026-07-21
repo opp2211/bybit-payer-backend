@@ -1115,12 +1115,15 @@
             "type" : "string",
             "enum" : [ "TBANK_AUTO", "SBERBANK", "ANY_BANK" ]
           },
+          "requireSenderFirstParty" : {
+            "type" : "boolean"
+          },
           "withdrawalMethod" : {
             "type" : "string",
             "enum" : [ "SBP", "CARD_NUMBER", "ACCOUNT_NUMBER" ]
           }
         },
-        "required" : [ "amountRub", "payerBankType", "recipientCardTbank", "thirdPartyTransfer", "withdrawalMethod" ]
+        "required" : [ "amountRub", "payerBankType", "recipientCardTbank", "requireSenderFirstParty", "thirdPartyTransfer", "withdrawalMethod" ]
       },
       "WithdrawalResponse" : {
         "type" : "object",
@@ -1164,6 +1167,9 @@
           },
           "payerBankTypeTitle" : {
             "type" : "string"
+          },
+          "requireSenderFirstParty" : {
+            "type" : "boolean"
           },
           "withdrawalMethod" : {
             "type" : "string"

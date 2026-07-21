@@ -99,12 +99,17 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
 Managed ad text is built from the full payment group of the earliest queue-managed
-withdrawal. The group includes payer bank type, withdrawal method, third-party transfer
-flag, and for card-number withdrawals the `recipientCardTbank` flag. Only withdrawals
-with that same group can be published together; amounts inside the active group are
-still merged as `2420 / 5000`. `TBANK_AUTO` can publish either `SBP` or `CARD_NUMBER`
-groups and uses automatic mail receipt verification. `SBERBANK` publishes the
-`ACCOUNT_NUMBER` group, while `ANY_BANK` publishes the `SBP` group.
+withdrawal. The group includes payer bank type, withdrawal method, the sender first-party
+requirement flag, third-party transfer flag, and for card-number withdrawals the
+`recipientCardTbank` flag. Only withdrawals with that same group can be published together;
+amounts inside the active group are still merged as `2420 / 5000`. `TBANK_AUTO` can publish
+either `SBP` or `CARD_NUMBER` groups and uses automatic mail receipt verification.
+`SBERBANK` publishes the `ACCOUNT_NUMBER` group, while `ANY_BANK` publishes the `SBP` group.
+
+When `requireSenderFirstParty` is enabled, the managed ad description starts with
+`Работаю только с 1 лицами (Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit)`.
+The flag is stored on the withdrawal for future chat/agent logic; currently it only changes
+the managed ad text and preview.
 
 Receipt verification must match the parsed status as a complete normalized value before calling
 `/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated

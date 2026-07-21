@@ -40,6 +40,9 @@ import java.util.stream.Collectors;
 public class AdvertisementManager {
 
     private static final int REFERENCE_RATE_15_POSITION = 15;
+    private static final String SENDER_FIRST_PARTY_REQUIREMENT =
+            "Работаю только с 1 лицами "
+                    + "(Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit)";
     private static final String AD_DESCRIPTION_TEMPLATE =
             "%s ___ Заходите только на сумму %s руб.  " +
                     "- другие суммы - отмена! ___ %s";
@@ -239,6 +242,7 @@ public class AdvertisementManager {
             WithdrawalMethod withdrawalMethod,
             boolean thirdPartyTransfer,
             boolean recipientCardTbank,
+            boolean requireSenderFirstParty,
             BigDecimal rate
     ) {
         PayerBankType effectivePayerBankType = PayerBankType.effective(payerBankType);
@@ -255,7 +259,7 @@ public class AdvertisementManager {
                 recipientCardTbank
         );
         String description = AD_DESCRIPTION_TEMPLATE.formatted(
-                effectivePayerBankType.getAdvertisementIntro(),
+                advertisementIntro(effectivePayerBankType, requireSenderFirstParty),
                 formatRubAmount(amountRub),
                 advertisementTail
         );
@@ -409,7 +413,7 @@ public class AdvertisementManager {
                 first.isRecipientCardTbank()
         );
         String description = AD_DESCRIPTION_TEMPLATE.formatted(
-                payerBankType.getAdvertisementIntro(),
+                advertisementIntro(payerBankType, first.isRequireSenderFirstParty()),
                 amountText,
                 advertisementTail
         );
@@ -571,11 +575,19 @@ public class AdvertisementManager {
                 withdrawal.getPayerBankType(),
                 withdrawal.getWithdrawalMethod(),
                 effectiveThirdPartyTransfer(withdrawal),
-                withdrawal.isRecipientCardTbank()
+                withdrawal.isRecipientCardTbank(),
+                withdrawal.isRequireSenderFirstParty()
         );
     }
 
     private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity withdrawal) {
         return withdrawal.getWithdrawalMethod() == null || withdrawal.isThirdPartyTransfer();
+    }
+
+    private String advertisementIntro(PayerBankType payerBankType, boolean requireSenderFirstParty) {
+        String intro = PayerBankType.effective(payerBankType).getAdvertisementIntro();
+        return requireSenderFirstParty
+                ? SENDER_FIRST_PARTY_REQUIREMENT + " ___ " + intro
+                : intro;
     }
 }

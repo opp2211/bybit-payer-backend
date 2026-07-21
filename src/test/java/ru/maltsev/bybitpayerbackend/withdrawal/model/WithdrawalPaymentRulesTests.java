@@ -53,7 +53,15 @@ class WithdrawalPaymentRulesTests {
                 PayerBankType.TBANK_AUTO,
                 WithdrawalMethod.CARD_NUMBER,
                 true,
+                false,
                 false
-        )).isEqualTo("TBANK_AUTO:CARD_NUMBER:THIRD_PARTY:OTHER_CARD");
+        )).isEqualTo("TBANK_AUTO:CARD_NUMBER:ANY_SENDER:THIRD_PARTY:OTHER_CARD");
+        assertThat(WithdrawalPaymentRules.queueGroupKey(
+                PayerBankType.TBANK_AUTO,
+                WithdrawalMethod.CARD_NUMBER,
+                true,
+                false,
+                true
+        )).isEqualTo("TBANK_AUTO:CARD_NUMBER:SENDER_FIRST_PARTY:THIRD_PARTY:OTHER_CARD");
     }
 }

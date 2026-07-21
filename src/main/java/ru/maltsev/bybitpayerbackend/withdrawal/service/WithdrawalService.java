@@ -155,6 +155,7 @@ public class WithdrawalService {
         WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
         WithdrawalRequisites requisites = normalizeRequisites(request, withdrawalMethod);
         boolean thirdPartyTransfer = Boolean.TRUE.equals(request.thirdPartyTransfer());
+        boolean requireSenderFirstParty = Boolean.TRUE.equals(request.requireSenderFirstParty());
 
         WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
         withdrawal.setPublicId(publicIdGenerator.generate(withdrawalRepository::existsByPublicId));
@@ -169,6 +170,7 @@ public class WithdrawalService {
         withdrawal.setRecipientCardTbank(requisites.recipientCardTbank());
         withdrawal.setThirdPartyTransfer(thirdPartyTransfer);
         withdrawal.setPayerBankType(payerBankType);
+        withdrawal.setRequireSenderFirstParty(requireSenderFirstParty);
         withdrawal.setWithdrawalMethod(withdrawalMethod);
         withdrawal.setStatus(WithdrawalStatus.NEW);
         withdrawal.setAttentionRequired(false);
@@ -177,7 +179,8 @@ public class WithdrawalService {
                 payerBankType,
                 withdrawalMethod,
                 thirdPartyTransfer,
-                requisites.recipientCardTbank()
+                requisites.recipientCardTbank(),
+                requireSenderFirstParty
         ));
         withdrawal.setCreatedAt(Instant.now(clock));
         withdrawal = withdrawalRepository.save(withdrawal);
@@ -208,6 +211,7 @@ public class WithdrawalService {
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(request.withdrawalMethod());
         WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
         boolean thirdPartyTransfer = Boolean.TRUE.equals(request.thirdPartyTransfer());
+        boolean requireSenderFirstParty = Boolean.TRUE.equals(request.requireSenderFirstParty());
         boolean recipientCardTbank = withdrawalMethod == WithdrawalMethod.CARD_NUMBER
                 && Boolean.TRUE.equals(request.recipientCardTbank());
         BybitManagedAdStateEntity currentState = advertisementManager.getCurrentState(workspace);
@@ -217,6 +221,7 @@ public class WithdrawalService {
                 withdrawalMethod,
                 thirdPartyTransfer,
                 recipientCardTbank,
+                requireSenderFirstParty,
                 currentState.getLastRate()
         );
 
