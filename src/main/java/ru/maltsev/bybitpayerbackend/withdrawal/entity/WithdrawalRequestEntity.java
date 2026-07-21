@@ -19,6 +19,7 @@ import lombok.Setter;
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 
 @Getter
@@ -55,6 +56,10 @@ public class WithdrawalRequestEntity {
 
     @Column(name = "recipient_name", nullable = false)
     private String recipientName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payer_bank_type", nullable = false, length = 32)
+    private PayerBankType payerBankType;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 48)

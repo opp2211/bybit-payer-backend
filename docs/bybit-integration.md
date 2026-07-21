@@ -98,6 +98,13 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
+Managed ad text is built from the payer bank type of the earliest queue-managed
+withdrawal. Only withdrawals with that same type can be published together; amounts
+inside the active type are still merged as `2420 / 5000`. `TBANK_AUTO` uses the
+mail receipt wording and automatic release, while `SBERBANK` and `ANY_BANK` publish
+manual-review wording and stay queued until their type becomes the earliest active
+group.
+
 Receipt verification must match the parsed status as a complete normalized value before calling
 `/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated
 as `Успешно` by substring matching.
@@ -138,6 +145,10 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
+
+When an order is marked paid, only `TBANK_AUTO` starts mail receipt verification and sends the
+receipt email to chat. `SBERBANK` and `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as
+requiring operator attention, skip mailbox polling, and must be released manually.
 
 Chat messages are not stored locally. Outgoing messages are sent directly to
 `/v5/p2p/order/message/send`, and withdrawal details read chat history only from

@@ -28,6 +28,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -147,6 +148,10 @@ public class ReceiptVerificationWorker {
     }
 
     private void verifyWithdrawal(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        if (!PayerBankType.effective(withdrawal.getPayerBankType()).isAutoReleaseEnabled()) {
+            return;
+        }
+
         var verifiedCheck = receiptCheckRepository
                 .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
                         withdrawal.getId(),
@@ -189,6 +194,10 @@ public class ReceiptVerificationWorker {
     }
 
     private void verifyWithdrawalLegacy(WithdrawalRequestEntity withdrawal) {
+        if (!PayerBankType.effective(withdrawal.getPayerBankType()).isAutoReleaseEnabled()) {
+            return;
+        }
+
         var verifiedCheck = receiptCheckRepository
                 .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
                         withdrawal.getId(),

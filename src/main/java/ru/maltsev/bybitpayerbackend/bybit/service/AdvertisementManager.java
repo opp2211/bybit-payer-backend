@@ -18,6 +18,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -38,10 +39,8 @@ public class AdvertisementManager {
 
     private static final int REFERENCE_RATE_15_POSITION = 15;
     private static final String AD_DESCRIPTION_TEMPLATE =
-            "Только Т-банк! ___ Заходите только на сумму %s руб.  " +
-                    "- другие суммы - отмена! ___ Принимаю на карту" +
-                    " 3 лица по СБП ___ Понадобится чек с офф. почты" +
-                    " банка мне на почту";
+            "%s ___ Заходите только на сумму %s руб.  " +
+                    "- другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП";
 
     private final Map<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -274,13 +273,21 @@ public class AdvertisementManager {
     }
 
     private List<WithdrawalRequestEntity> applyQueueRules(List<WithdrawalRequestEntity> candidates, Instant now) {
+        PayerBankType activePayerBankType = candidates.stream()
+                .findFirst()
+                .map(withdrawal -> PayerBankType.effective(withdrawal.getPayerBankType()))
+                .orElse(null);
         Set<String> publishedAmountKeys = new HashSet<>();
         List<WithdrawalRequestEntity> published = new ArrayList<>();
         int queuedPosition = 1;
 
         for (WithdrawalRequestEntity withdrawal : candidates) {
+            PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
+            withdrawal.setQueueGroupKey(payerBankType.name());
             String amountKey = amountKey(withdrawal.getAmountRub());
-            boolean canPublish = publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts()
+            boolean matchesActiveGroup = payerBankType == activePayerBankType;
+            boolean canPublish = matchesActiveGroup
+                    && publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts()
                     && publishedAmountKeys.add(amountKey);
 
             if (canPublish) {
@@ -360,7 +367,8 @@ public class AdvertisementManager {
         String amountText = amounts.stream()
                 .map(this::formatRubAmount)
                 .collect(Collectors.joining(" / "));
-        String description = AD_DESCRIPTION_TEMPLATE.formatted(amountText);
+        PayerBankType payerBankType = PayerBankType.effective(published.getFirst().getPayerBankType());
+        String description = AD_DESCRIPTION_TEMPLATE.formatted(payerBankType.getAdvertisementIntro(), amountText);
 
         return new AdvertisementSnapshot(
                 true,

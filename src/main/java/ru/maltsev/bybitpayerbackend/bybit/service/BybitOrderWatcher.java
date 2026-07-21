@@ -22,6 +22,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -170,13 +171,30 @@ public class BybitOrderWatcher {
             return false;
         }
         if (order.paid() && withdrawal.getStatus() == WithdrawalStatus.PAYMENT_IN_PROGRESS) {
+            PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
             Instant now = Instant.now(clock);
             withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
             withdrawal.setPaidAt(now);
-            withdrawal.setVerificationStartedAt(now);
+            if (payerBankType.isAutoReleaseEnabled()) {
+                withdrawal.setVerificationStartedAt(now);
+                withdrawal.setAttentionRequired(false);
+                withdrawal.setLastWarning(null);
+            } else {
+                withdrawal.setVerificationStartedAt(null);
+                withdrawal.setAttentionRequired(true);
+                withdrawal.setLastWarning("Платеж ожидает ручной проверки оператором");
+            }
             withdrawalRepository.save(withdrawal);
             eventService.add(withdrawal, WithdrawalEventType.ORDER_PAID, "Bybit order marked as paid");
-            eventService.add(withdrawal, WithdrawalEventType.MAIL_CHECK_STARTED, "Mail verification started");
+            if (payerBankType.isAutoReleaseEnabled()) {
+                eventService.add(withdrawal, WithdrawalEventType.MAIL_CHECK_STARTED, "Mail verification started");
+            } else {
+                eventService.add(
+                        withdrawal,
+                        WithdrawalEventType.ATTENTION_REQUIRED,
+                        "Payment requires manual operator verification"
+                );
+            }
             log.info(
                     "Bybit order marked as paid: orderId={}, withdrawalId={}",
                     order.bybitOrderId(),

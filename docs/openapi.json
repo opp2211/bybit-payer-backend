@@ -1065,9 +1065,13 @@
           "recipientName" : {
             "type" : "string",
             "minLength" : 1
+          },
+          "payerBankType" : {
+            "type" : "string",
+            "enum" : [ "TBANK_AUTO", "SBERBANK", "ANY_BANK" ]
           }
         },
-        "required" : [ "amountRub", "recipientBank", "recipientName", "recipientPhone" ]
+        "required" : [ "amountRub", "payerBankType", "recipientBank", "recipientName", "recipientPhone" ]
       },
       "WithdrawalResponse" : {
         "type" : "object",
@@ -1093,6 +1097,15 @@
           },
           "recipientName" : {
             "type" : "string"
+          },
+          "payerBankType" : {
+            "type" : "string"
+          },
+          "payerBankTypeTitle" : {
+            "type" : "string"
+          },
+          "autoReleaseEnabled" : {
+            "type" : "boolean"
           },
           "status" : {
             "type" : "string"
@@ -1626,10 +1639,10 @@
       "CsrfToken" : {
         "type" : "object",
         "properties" : {
-          "token" : {
+          "parameterName" : {
             "type" : "string"
           },
-          "parameterName" : {
+          "token" : {
             "type" : "string"
           },
           "headerName" : {

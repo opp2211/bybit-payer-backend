@@ -156,10 +156,11 @@ public class WithdrawalService {
         withdrawal.setRecipientPhone(phone);
         withdrawal.setRecipientBank(bank);
         withdrawal.setRecipientName(recipientName);
+        withdrawal.setPayerBankType(request.payerBankType());
         withdrawal.setStatus(WithdrawalStatus.NEW);
         withdrawal.setAttentionRequired(false);
         withdrawal.setCompletionSeen(true);
-        withdrawal.setQueueGroupKey(amountRub.stripTrailingZeros().toPlainString());
+        withdrawal.setQueueGroupKey(request.payerBankType().name());
         withdrawal.setCreatedAt(Instant.now(clock));
         withdrawal = withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.WITHDRAWAL_CREATED, "Withdrawal request created", currentUser);

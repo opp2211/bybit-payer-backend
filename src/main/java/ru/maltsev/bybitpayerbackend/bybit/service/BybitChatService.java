@@ -26,6 +26,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
@@ -95,12 +96,14 @@ public class BybitChatService {
 
     @Transactional
     public void sendRequisites(WithdrawalRequestEntity withdrawal) {
-        List<String> messages = List.of(
+        List<String> messages = new ArrayList<>(List.of(
                 HELLO_MESSAGE,
                 withdrawal.getRecipientPhone(),
-                withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName(),
-                businessProperties.getReceiptEmailToSendInChat()
-        );
+                withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName()
+        ));
+        if (PayerBankType.effective(withdrawal.getPayerBankType()).isAutoReleaseEnabled()) {
+            messages.add(businessProperties.getReceiptEmailToSendInChat());
+        }
 
         boolean allSent = true;
         for (String message : messages) {

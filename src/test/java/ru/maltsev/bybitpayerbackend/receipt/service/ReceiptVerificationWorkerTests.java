@@ -33,6 +33,7 @@ import ru.maltsev.bybitpayerbackend.receipt.model.ReceiptVerificationStatus;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
 import ru.maltsev.bybitpayerbackend.receipt.repository.IgnoredEmailReceiptRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
@@ -144,6 +145,26 @@ class ReceiptVerificationWorkerTests {
         verify(fixture.mailService, never()).findForWithdrawal(any(), any());
     }
 
+    @Test
+    void manualPayerBankTypeIsNotAutoReleased() {
+        Fixture fixture = new Fixture();
+        WithdrawalRequestEntity withdrawal = withdrawal(
+                1L,
+                "order-1",
+                "+7 (900) 111-11-11",
+                new BigDecimal("1000")
+        );
+        withdrawal.setPayerBankType(PayerBankType.ANY_BANK);
+        when(fixture.withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.PAYMENT_VERIFICATION))
+                .thenReturn(List.of(withdrawal));
+
+        fixture.worker.verifyPendingPayments();
+
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_VERIFICATION);
+        verify(fixture.mailService, never()).findForWithdrawal(any(), any());
+        verify(fixture.bybitGateway, never()).releaseOrder("order-1");
+    }
+
     private WithdrawalRequestEntity withdrawal(Long id, String orderId, String phone, BigDecimal amount) {
         BankEntity bank = new BankEntity();
         bank.setCode("SBERBANK");
@@ -157,6 +178,7 @@ class ReceiptVerificationWorkerTests {
         withdrawal.setRecipientBank(bank);
         withdrawal.setAmountRub(amount);
         withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
+        withdrawal.setPayerBankType(PayerBankType.TBANK_AUTO);
         return withdrawal;
     }
 

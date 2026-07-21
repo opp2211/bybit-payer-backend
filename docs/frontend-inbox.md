@@ -15,4 +15,4 @@
 
 ## Pending
 
-Пусто.
+- 2026-07-21 - В `CreateWithdrawalRequest` добавлено обязательное поле `payerBankType` (`TBANK_AUTO`, `SBERBANK`, `ANY_BANK`), а `WithdrawalResponse` теперь возвращает `payerBankType`, `payerBankTypeTitle`, `autoReleaseEnabled` -> добавить выбор банка отправителя в форму создания и отображение этого условия в списках/деталях заявки.

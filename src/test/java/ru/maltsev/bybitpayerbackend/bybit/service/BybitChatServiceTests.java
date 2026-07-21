@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -15,13 +16,16 @@ import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
@@ -95,6 +99,40 @@ class BybitChatServiceTests {
         assertThat(messages.get(1).messageIndex()).isNull();
         assertThat(messages.get(1).direction()).isEqualTo("OUTGOING");
         assertThat(messages.get(1).authorName()).isEqualTo("Вы");
+    }
+
+    @Test
+    void skipsReceiptEmailWhenPayerBankTypeRequiresManualRelease() {
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitGateway bybitGateway = mock(BybitGateway.class);
+        BankEntity bank = new BankEntity();
+        bank.setTitle("Сбербанк");
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(7L);
+        withdrawal.setBybitOrderId("order-7");
+        withdrawal.setRecipientPhone("+79001112233");
+        withdrawal.setRecipientBank(bank);
+        withdrawal.setRecipientName("Иван Петров");
+        withdrawal.setPayerBankType(PayerBankType.SBERBANK);
+
+        BusinessProperties businessProperties = new BusinessProperties();
+        businessProperties.setChatMessageDelay(Duration.ZERO);
+        businessProperties.setReceiptEmailToSendInChat("receipts@example.com");
+        BybitChatService service = new BybitChatService(
+                withdrawalRepository,
+                eventService,
+                bybitGateway,
+                businessProperties,
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        service.sendRequisites(withdrawal);
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(bybitGateway, times(3)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
+        assertThat(messageCaptor.getAllValues())
+                .containsExactly("Привет", "+79001112233", "Сбербанк, Иван Петров");
     }
 
     private BybitChatService service(

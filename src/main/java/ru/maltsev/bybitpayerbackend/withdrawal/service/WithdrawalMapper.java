@@ -10,11 +10,13 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalEventResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalEventEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 
 @Component
 public class WithdrawalMapper {
 
     public WithdrawalResponse toResponse(WithdrawalRequestEntity entity) {
+        PayerBankType payerBankType = PayerBankType.effective(entity.getPayerBankType());
         return new WithdrawalResponse(
                 entity.getId(),
                 entity.getPublicId(),
@@ -23,6 +25,9 @@ public class WithdrawalMapper {
                 entity.getRecipientBank().getCode(),
                 entity.getRecipientBank().getTitle(),
                 entity.getRecipientName(),
+                payerBankType.name(),
+                payerBankType.getTitle(),
+                payerBankType.isAutoReleaseEnabled(),
                 entity.getStatus().name(),
                 entity.getStatus().getTitle(),
                 entity.isAttentionRequired(),
