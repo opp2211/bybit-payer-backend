@@ -23,6 +23,7 @@ import ru.maltsev.bybitpayerbackend.bybit.repository.BybitManagedAdStateReposito
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
@@ -170,7 +171,7 @@ class AdvertisementManagerTests {
                 .extracting(AdUpdateCommand::description)
                 .containsExactly(
                         "Принимаю платеж только с Т-банка, понадобится чек с офф. почты банка мне на почту ___ Заходите только на сумму 2420 / 7000 руб.  - другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП",
-                        "Принимаю платеж только со Сбербанка ___ Заходите только на сумму 5000 руб.  - другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП"
+                        "Принимаю платеж только со Сбербанка ___ Заходите только на сумму 5000 руб.  - другие суммы - отмена! ___ Принимаю СБЕР-СБЕР по номеру счета на 3 лицо"
                 );
     }
 
@@ -184,6 +185,12 @@ class AdvertisementManagerTests {
         withdrawal.setId(id);
         withdrawal.setAmountRub(new BigDecimal(amountRub));
         withdrawal.setPayerBankType(payerBankType);
+        withdrawal.setWithdrawalMethod(
+                payerBankType == PayerBankType.SBERBANK
+                        ? WithdrawalMethod.ACCOUNT_NUMBER
+                        : WithdrawalMethod.SBP
+        );
+        withdrawal.setThirdPartyTransfer(true);
         withdrawal.setStatus(WithdrawalStatus.NEW);
         withdrawal.setCreatedAt(Instant.parse(createdAt));
         return withdrawal;

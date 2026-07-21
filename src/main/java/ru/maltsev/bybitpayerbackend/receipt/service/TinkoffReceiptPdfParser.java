@@ -22,10 +22,12 @@ import ru.maltsev.bybitpayerbackend.receipt.util.ReceiptText;
 public class TinkoffReceiptPdfParser {
 
     private static final List<String> STATUS_LABELS = List.of("Статус операции", "Статус", "Состояние");
-    private static final List<String> AMOUNT_LABELS = List.of("Сумма операции", "Сумма перевода", "Сумма", "Итого");
+    private static final List<String> PRIMARY_AMOUNT_LABELS = List.of("Сумма операции", "Сумма перевода", "Сумма");
+    private static final List<String> FALLBACK_AMOUNT_LABELS = List.of("Итого");
     private static final List<String> RECIPIENT_LABELS = List.of("ФИО получателя", "Получатель", "Кому");
     private static final List<String> PHONE_LABELS = List.of("Телефон получателя", "Номер телефона", "Телефон");
     private static final List<String> BANK_LABELS = List.of("Банк получателя", "Банк карты получателя");
+    private static final List<String> CARD_LABELS = List.of("Карта получателя", "Номер карты получателя");
     private static final Pattern PHONE_PATTERN = Pattern.compile("(?iu)(?:\\+7|8)\\s*\\(?\\d{3}\\)?[\\d\\s().-]{7,}");
     private static final List<String> KNOWN_STATUSES = List.of(
             "Неуспешно",
@@ -57,13 +59,17 @@ public class TinkoffReceiptPdfParser {
                 extractStatus(rawText).orElse(null),
                 extractLineValue(rawText, RECIPIENT_LABELS).orElse(null),
                 extractPhone(rawText).orElse(null),
-                extractLineValue(rawText, BANK_LABELS).orElse(null)
+                extractLineValue(rawText, BANK_LABELS).orElse(null),
+                extractLineValue(rawText, CARD_LABELS).orElse(null)
         );
         return new ParsedTinkoffReceipt(data, rawText);
     }
 
     private Optional<BigDecimal> extractAmount(String text) {
-        Optional<String> labeledAmount = extractLineValue(text, AMOUNT_LABELS);
+        Optional<String> labeledAmount = extractLineValue(text, PRIMARY_AMOUNT_LABELS);
+        if (labeledAmount.isEmpty()) {
+            labeledAmount = extractLineValue(text, FALLBACK_AMOUNT_LABELS);
+        }
         if (labeledAmount.isPresent()) {
             Optional<BigDecimal> amount = ReceiptText.extractFirstAmountCandidate(labeledAmount.get());
             if (amount.isPresent()) {
@@ -165,7 +171,10 @@ public class TinkoffReceiptPdfParser {
                 || normalizedLine.equals("сумма")
                 || normalizedLine.equals("получатель")
                 || normalizedLine.equals("телефон")
-                || normalizedLine.equals("банк получателя");
+                || normalizedLine.equals("банк получателя")
+                || normalizedLine.equals("банк карты получателя")
+                || normalizedLine.equals("карта получателя")
+                || normalizedLine.equals("номер карты получателя");
     }
 
     private String cleanValue(String value) {

@@ -205,7 +205,8 @@ class ReceiptVerificationWorkerTests {
                         "Успешно",
                         "Иван Петров",
                         phone,
-                        "Сбербанк"
+                        "Сбербанк",
+                        null
                 ),
                 errors
         );

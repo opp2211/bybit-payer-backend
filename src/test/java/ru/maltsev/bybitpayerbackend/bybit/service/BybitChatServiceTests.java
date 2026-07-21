@@ -26,6 +26,7 @@ import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
@@ -133,6 +134,70 @@ class BybitChatServiceTests {
         verify(bybitGateway, times(3)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
         assertThat(messageCaptor.getAllValues())
                 .containsExactly("Привет", "+79001112233", "Сбербанк, Иван Петров");
+    }
+
+    @Test
+    void sendsCardNumberAndRecipientNameForTbankCardRequisites() {
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitGateway bybitGateway = mock(BybitGateway.class);
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(7L);
+        withdrawal.setBybitOrderId("order-7");
+        withdrawal.setPayerBankType(PayerBankType.TBANK_AUTO);
+        withdrawal.setWithdrawalMethod(WithdrawalMethod.CARD_NUMBER);
+        withdrawal.setRecipientCardNumber("2200000000001234");
+        withdrawal.setRecipientCardTbank(true);
+        withdrawal.setRecipientName("Дмитрий С.");
+
+        BusinessProperties businessProperties = new BusinessProperties();
+        businessProperties.setChatMessageDelay(Duration.ZERO);
+        businessProperties.setReceiptEmailToSendInChat("receipts@example.com");
+        BybitChatService service = new BybitChatService(
+                withdrawalRepository,
+                eventService,
+                bybitGateway,
+                businessProperties,
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        service.sendRequisites(withdrawal);
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(bybitGateway, times(4)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
+        assertThat(messageCaptor.getAllValues())
+                .containsExactly("Привет", "2200000000001234", "Дмитрий С.", "receipts@example.com");
+    }
+
+    @Test
+    void sendsAccountNumberAndRecipientNameForSberbankAccountRequisites() {
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitGateway bybitGateway = mock(BybitGateway.class);
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(7L);
+        withdrawal.setBybitOrderId("order-7");
+        withdrawal.setPayerBankType(PayerBankType.SBERBANK);
+        withdrawal.setWithdrawalMethod(WithdrawalMethod.ACCOUNT_NUMBER);
+        withdrawal.setRecipientAccountNumber("40817810099910004312");
+        withdrawal.setRecipientName("Иван Петров");
+
+        BusinessProperties businessProperties = new BusinessProperties();
+        businessProperties.setChatMessageDelay(Duration.ZERO);
+        BybitChatService service = new BybitChatService(
+                withdrawalRepository,
+                eventService,
+                bybitGateway,
+                businessProperties,
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        service.sendRequisites(withdrawal);
+
+        ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+        verify(bybitGateway, times(3)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
+        assertThat(messageCaptor.getAllValues())
+                .containsExactly("Привет", "40817810099910004312", "Иван Петров");
     }
 
     private BybitChatService service(

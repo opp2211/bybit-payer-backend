@@ -1055,23 +1055,36 @@
             "type" : "number"
           },
           "recipientPhone" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : "string"
           },
           "recipientBank" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : "string"
           },
           "recipientName" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : "string"
+          },
+          "recipientCardNumber" : {
+            "type" : "string"
+          },
+          "recipientAccountNumber" : {
+            "type" : "string"
+          },
+          "recipientCardTbank" : {
+            "type" : "boolean"
+          },
+          "thirdPartyTransfer" : {
+            "type" : "boolean"
           },
           "payerBankType" : {
             "type" : "string",
             "enum" : [ "TBANK_AUTO", "SBERBANK", "ANY_BANK" ]
+          },
+          "withdrawalMethod" : {
+            "type" : "string",
+            "enum" : [ "SBP", "CARD_NUMBER", "ACCOUNT_NUMBER" ]
           }
         },
-        "required" : [ "amountRub", "payerBankType", "recipientBank", "recipientName", "recipientPhone" ]
+        "required" : [ "amountRub", "payerBankType", "recipientCardTbank", "thirdPartyTransfer", "withdrawalMethod" ]
       },
       "WithdrawalResponse" : {
         "type" : "object",
@@ -1098,10 +1111,28 @@
           "recipientName" : {
             "type" : "string"
           },
+          "recipientCardNumber" : {
+            "type" : "string"
+          },
+          "recipientAccountNumber" : {
+            "type" : "string"
+          },
+          "recipientCardTbank" : {
+            "type" : "boolean"
+          },
+          "thirdPartyTransfer" : {
+            "type" : "boolean"
+          },
           "payerBankType" : {
             "type" : "string"
           },
           "payerBankTypeTitle" : {
+            "type" : "string"
+          },
+          "withdrawalMethod" : {
+            "type" : "string"
+          },
+          "withdrawalMethodTitle" : {
             "type" : "string"
           },
           "autoReleaseEnabled" : {
@@ -1318,6 +1349,9 @@
           },
           "bank" : {
             "type" : "string"
+          },
+          "card" : {
+            "type" : "string"
           }
         }
       },
@@ -1345,19 +1379,26 @@
             "type" : "number"
           },
           "recipient" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : "string"
           },
           "phone" : {
-            "type" : "string",
-            "minLength" : 1
+            "type" : "string"
           },
           "bank" : {
+            "type" : "string"
+          },
+          "withdrawalMethod" : {
             "type" : "string",
-            "minLength" : 1
+            "enum" : [ "SBP", "CARD_NUMBER", "ACCOUNT_NUMBER" ]
+          },
+          "cardNumber" : {
+            "type" : "string"
+          },
+          "recipientCardTbank" : {
+            "type" : "boolean"
           }
         },
-        "required" : [ "amount", "bank", "phone", "recipient" ]
+        "required" : [ "amount" ]
       },
       "TinkoffMailReceiptValidationResult" : {
         "type" : "object",
@@ -1521,6 +1562,9 @@
           "parsedRecipientName" : {
             "type" : "string"
           },
+          "parsedRecipientCard" : {
+            "type" : "string"
+          },
           "parsedOperationDate" : {
             "type" : "string"
           },
@@ -1639,10 +1683,10 @@
       "CsrfToken" : {
         "type" : "object",
         "properties" : {
-          "parameterName" : {
+          "token" : {
             "type" : "string"
           },
-          "token" : {
+          "parameterName" : {
             "type" : "string"
           },
           "headerName" : {

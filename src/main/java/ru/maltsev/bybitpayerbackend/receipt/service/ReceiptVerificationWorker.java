@@ -29,6 +29,8 @@ import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -148,7 +150,7 @@ public class ReceiptVerificationWorker {
     }
 
     private void verifyWithdrawal(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
-        if (!PayerBankType.effective(withdrawal.getPayerBankType()).isAutoReleaseEnabled()) {
+        if (!autoReleaseEnabled(withdrawal)) {
             return;
         }
 
@@ -163,12 +165,7 @@ public class ReceiptVerificationWorker {
             return;
         }
 
-        TinkoffReceiptVerificationRequest request = new TinkoffReceiptVerificationRequest(
-                withdrawal.getAmountRub(),
-                withdrawal.getRecipientName(),
-                withdrawal.getRecipientPhone(),
-                withdrawal.getRecipientBank().getTitle()
-        );
+        TinkoffReceiptVerificationRequest request = verificationRequest(withdrawal);
 
         var ignoredReceiptKeys = ignoredReceiptRepository
                 .findReceiptKeysByWithdrawalRequestId(withdrawal.getId());
@@ -194,7 +191,7 @@ public class ReceiptVerificationWorker {
     }
 
     private void verifyWithdrawalLegacy(WithdrawalRequestEntity withdrawal) {
-        if (!PayerBankType.effective(withdrawal.getPayerBankType()).isAutoReleaseEnabled()) {
+        if (!autoReleaseEnabled(withdrawal)) {
             return;
         }
 
@@ -209,12 +206,7 @@ public class ReceiptVerificationWorker {
             return;
         }
 
-        TinkoffReceiptVerificationRequest request = new TinkoffReceiptVerificationRequest(
-                withdrawal.getAmountRub(),
-                withdrawal.getRecipientName(),
-                withdrawal.getRecipientPhone(),
-                withdrawal.getRecipientBank().getTitle()
-        );
+        TinkoffReceiptVerificationRequest request = verificationRequest(withdrawal);
 
         var ignoredReceiptKeys = ignoredReceiptRepository
                 .findReceiptKeysByWithdrawalRequestId(withdrawal.getId());
@@ -257,7 +249,7 @@ public class ReceiptVerificationWorker {
         ignored.setCreatedAt(Instant.now(clock));
         ignoredReceiptRepository.save(ignored);
         log.debug(
-                "Receipt ignored for withdrawal because phone does not match: withdrawalId={}, receiptKey={}",
+                "Receipt ignored for withdrawal because requisites do not match: withdrawalId={}, receiptKey={}",
                 withdrawal.getId(),
                 result.receiptKey()
         );
@@ -280,6 +272,7 @@ public class ReceiptVerificationWorker {
             check.setParsedRecipientPhone(receipt.phone());
             check.setParsedRecipientBank(receipt.bank());
             check.setParsedRecipientName(receipt.recipient());
+            check.setParsedRecipientCard(receipt.card());
         }
         check.setVerificationStatus(result.valid() ? ReceiptVerificationStatus.VERIFIED : ReceiptVerificationStatus.FAILED);
         check.setVerificationError(result.valid() ? null : String.join("; ", result.errors()));
@@ -370,7 +363,7 @@ public class ReceiptVerificationWorker {
     private void markVerificationFailed(WithdrawalRequestEntity withdrawal, String reason) {
         withdrawal.setStatus(WithdrawalStatus.ERROR);
         withdrawal.setAttentionRequired(true);
-        withdrawal.setLastWarning("Найден чек с номером телефона заявки, но данные не совпали: " + reason);
+        withdrawal.setLastWarning("Найден чек с реквизитами заявки, но данные не совпали: " + reason);
         withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.VERIFICATION_FAILED, "Receipt verification failed: " + reason);
         log.warn(
@@ -378,5 +371,34 @@ public class ReceiptVerificationWorker {
                 withdrawal.getId(),
                 withdrawal.getBybitOrderId()
         );
+    }
+
+    private boolean autoReleaseEnabled(WithdrawalRequestEntity withdrawal) {
+        return WithdrawalPaymentRules.isAutoReleaseEnabled(
+                PayerBankType.effective(withdrawal.getPayerBankType()),
+                WithdrawalMethod.effective(withdrawal.getWithdrawalMethod())
+        );
+    }
+
+    private TinkoffReceiptVerificationRequest verificationRequest(WithdrawalRequestEntity withdrawal) {
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+        return switch (withdrawalMethod) {
+            case SBP -> new TinkoffReceiptVerificationRequest(
+                    withdrawal.getAmountRub(),
+                    withdrawal.getRecipientName(),
+                    withdrawal.getRecipientPhone(),
+                    withdrawal.getRecipientBank().getTitle()
+            );
+            case CARD_NUMBER -> new TinkoffReceiptVerificationRequest(
+                    withdrawal.getAmountRub(),
+                    withdrawal.getRecipientName(),
+                    null,
+                    null,
+                    WithdrawalMethod.CARD_NUMBER,
+                    withdrawal.getRecipientCardNumber(),
+                    withdrawal.isRecipientCardTbank()
+            );
+            case ACCOUNT_NUMBER -> throw new IllegalStateException("Account-number withdrawal is not auto-released");
+        };
     }
 }

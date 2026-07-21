@@ -23,6 +23,8 @@ import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -172,10 +174,12 @@ public class BybitOrderWatcher {
         }
         if (order.paid() && withdrawal.getStatus() == WithdrawalStatus.PAYMENT_IN_PROGRESS) {
             PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
+            WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+            boolean autoReleaseEnabled = WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod);
             Instant now = Instant.now(clock);
             withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
             withdrawal.setPaidAt(now);
-            if (payerBankType.isAutoReleaseEnabled()) {
+            if (autoReleaseEnabled) {
                 withdrawal.setVerificationStartedAt(now);
                 withdrawal.setAttentionRequired(false);
                 withdrawal.setLastWarning(null);
@@ -186,7 +190,7 @@ public class BybitOrderWatcher {
             }
             withdrawalRepository.save(withdrawal);
             eventService.add(withdrawal, WithdrawalEventType.ORDER_PAID, "Bybit order marked as paid");
-            if (payerBankType.isAutoReleaseEnabled()) {
+            if (autoReleaseEnabled) {
                 eventService.add(withdrawal, WithdrawalEventType.MAIL_CHECK_STARTED, "Mail verification started");
             } else {
                 eventService.add(

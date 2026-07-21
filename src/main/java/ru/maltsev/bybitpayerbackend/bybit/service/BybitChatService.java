@@ -27,6 +27,8 @@ import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
@@ -96,12 +98,13 @@ public class BybitChatService {
 
     @Transactional
     public void sendRequisites(WithdrawalRequestEntity withdrawal) {
-        List<String> messages = new ArrayList<>(List.of(
-                HELLO_MESSAGE,
-                withdrawal.getRecipientPhone(),
-                withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName()
-        ));
-        if (PayerBankType.effective(withdrawal.getPayerBankType()).isAutoReleaseEnabled()) {
+        List<String> messages = new ArrayList<>();
+        messages.add(HELLO_MESSAGE);
+        messages.addAll(requisiteMessages(withdrawal));
+
+        PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+        if (WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod)) {
             messages.add(businessProperties.getReceiptEmailToSendInChat());
         }
 
@@ -132,6 +135,28 @@ public class BybitChatService {
             );
         }
         withdrawalRepository.save(withdrawal);
+    }
+
+    private List<String> requisiteMessages(WithdrawalRequestEntity withdrawal) {
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+        return switch (withdrawalMethod) {
+            case SBP -> List.of(
+                    withdrawal.getRecipientPhone(),
+                    withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName()
+            );
+            case CARD_NUMBER -> {
+                List<String> messages = new ArrayList<>();
+                messages.add(withdrawal.getRecipientCardNumber());
+                if (StringUtils.hasText(withdrawal.getRecipientName())) {
+                    messages.add(withdrawal.getRecipientName());
+                }
+                yield messages;
+            }
+            case ACCOUNT_NUMBER -> List.of(
+                    withdrawal.getRecipientAccountNumber(),
+                    withdrawal.getRecipientName()
+            );
+        };
     }
 
     @Transactional

@@ -7,6 +7,7 @@ public record TinkoffReceiptData(
         String status,
         String recipient,
         String phone,
-        String bank
+        String bank,
+        String card
 ) {
 }

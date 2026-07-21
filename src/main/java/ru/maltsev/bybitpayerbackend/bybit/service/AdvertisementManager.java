@@ -19,6 +19,8 @@ import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -40,7 +42,7 @@ public class AdvertisementManager {
     private static final int REFERENCE_RATE_15_POSITION = 15;
     private static final String AD_DESCRIPTION_TEMPLATE =
             "%s ___ Заходите только на сумму %s руб.  " +
-                    "- другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП";
+                    "- другие суммы - отмена! ___ %s";
 
     private final Map<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -273,19 +275,19 @@ public class AdvertisementManager {
     }
 
     private List<WithdrawalRequestEntity> applyQueueRules(List<WithdrawalRequestEntity> candidates, Instant now) {
-        PayerBankType activePayerBankType = candidates.stream()
+        String activeGroupKey = candidates.stream()
                 .findFirst()
-                .map(withdrawal -> PayerBankType.effective(withdrawal.getPayerBankType()))
+                .map(this::queueGroupKey)
                 .orElse(null);
         Set<String> publishedAmountKeys = new HashSet<>();
         List<WithdrawalRequestEntity> published = new ArrayList<>();
         int queuedPosition = 1;
 
         for (WithdrawalRequestEntity withdrawal : candidates) {
-            PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
-            withdrawal.setQueueGroupKey(payerBankType.name());
+            String queueGroupKey = queueGroupKey(withdrawal);
+            withdrawal.setQueueGroupKey(queueGroupKey);
             String amountKey = amountKey(withdrawal.getAmountRub());
-            boolean matchesActiveGroup = payerBankType == activePayerBankType;
+            boolean matchesActiveGroup = queueGroupKey.equals(activeGroupKey);
             boolean canPublish = matchesActiveGroup
                     && publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts()
                     && publishedAmountKeys.add(amountKey);
@@ -368,7 +370,18 @@ public class AdvertisementManager {
                 .map(this::formatRubAmount)
                 .collect(Collectors.joining(" / "));
         PayerBankType payerBankType = PayerBankType.effective(published.getFirst().getPayerBankType());
-        String description = AD_DESCRIPTION_TEMPLATE.formatted(payerBankType.getAdvertisementIntro(), amountText);
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(published.getFirst().getWithdrawalMethod());
+        String advertisementTail = WithdrawalPaymentRules.advertisementTail(
+                payerBankType,
+                withdrawalMethod,
+                published.getFirst().isThirdPartyTransfer(),
+                published.getFirst().isRecipientCardTbank()
+        );
+        String description = AD_DESCRIPTION_TEMPLATE.formatted(
+                payerBankType.getAdvertisementIntro(),
+                amountText,
+                advertisementTail
+        );
 
         return new AdvertisementSnapshot(
                 true,
@@ -520,5 +533,14 @@ public class AdvertisementManager {
 
     private String formatRubAmount(BigDecimal amount) {
         return amount.stripTrailingZeros().toPlainString();
+    }
+
+    private String queueGroupKey(WithdrawalRequestEntity withdrawal) {
+        return WithdrawalPaymentRules.queueGroupKey(
+                withdrawal.getPayerBankType(),
+                withdrawal.getWithdrawalMethod(),
+                withdrawal.isThirdPartyTransfer(),
+                withdrawal.isRecipientCardTbank()
+        );
     }
 }

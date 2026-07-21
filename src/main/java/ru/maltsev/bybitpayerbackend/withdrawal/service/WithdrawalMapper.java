@@ -11,23 +11,32 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalEventEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 
 @Component
 public class WithdrawalMapper {
 
     public WithdrawalResponse toResponse(WithdrawalRequestEntity entity) {
         PayerBankType payerBankType = PayerBankType.effective(entity.getPayerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(entity.getWithdrawalMethod());
         return new WithdrawalResponse(
                 entity.getId(),
                 entity.getPublicId(),
                 entity.getAmountRub(),
                 entity.getRecipientPhone(),
-                entity.getRecipientBank().getCode(),
-                entity.getRecipientBank().getTitle(),
+                entity.getRecipientBank() == null ? null : entity.getRecipientBank().getCode(),
+                entity.getRecipientBank() == null ? null : entity.getRecipientBank().getTitle(),
                 entity.getRecipientName(),
+                entity.getRecipientCardNumber(),
+                entity.getRecipientAccountNumber(),
+                entity.isRecipientCardTbank(),
+                entity.isThirdPartyTransfer(),
                 payerBankType.name(),
                 payerBankType.getTitle(),
-                payerBankType.isAutoReleaseEnabled(),
+                withdrawalMethod.name(),
+                withdrawalMethod.getTitle(),
+                WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod),
                 entity.getStatus().name(),
                 entity.getStatus().getTitle(),
                 entity.isAttentionRequired(),
@@ -94,6 +103,7 @@ public class WithdrawalMapper {
                 entity.getParsedRecipientPhone(),
                 entity.getParsedRecipientBank(),
                 entity.getParsedRecipientName(),
+                entity.getParsedRecipientCard(),
                 entity.getParsedOperationDate(),
                 entity.getParsedOperationId(),
                 entity.getParsedReceiptNumber(),

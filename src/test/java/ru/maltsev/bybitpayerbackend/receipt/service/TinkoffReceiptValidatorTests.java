@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptValidationResult;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptVerificationRequest;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 
 class TinkoffReceiptValidatorTests {
 
@@ -43,6 +44,40 @@ class TinkoffReceiptValidatorTests {
         assertThat(result.receipt().recipient()).isEqualTo("Иван Петров");
         assertThat(result.receipt().phone()).isEqualTo("+7 (000) 000-00-00");
         assertThat(result.receipt().bank()).isEqualTo("Сбербанк");
+        assertThat(result.receipt().card()).isNull();
+    }
+
+    @Test
+    void validatesSbpReceiptByTransferAmountWhenTotalIncludesCommission() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("2420"),
+                "Дмитрий С.",
+                "+7 (965) 079-32-70",
+                "Т-банк"
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                20.07.2026 12:51:42
+                Итого
+                2 520 ₽
+                Перевод
+                По номеру телефона
+                Статус
+                Успешно
+                Сумма
+                2 420 ₽
+                Комиссия
+                100 ₽
+                Отправитель
+                Дарья Тодозакова
+                Телефон получателя
+                +7 (965) 079-32-70
+                Получатель
+                Дмитрий С.
+                """, expected);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.receipt().amount()).isEqualByComparingTo("2420");
     }
 
     @Test
@@ -208,5 +243,57 @@ class TinkoffReceiptValidatorTests {
                 "В чеке не найден ожидаемый получатель: Петр Иванов",
                 "В чеке не найден ожидаемый телефон: +7 (900) 111-22-33"
         );
+    }
+
+    @Test
+    void validatesTbankCardReceiptByLastFourDigitsAndRecipient() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("2420"),
+                "Дмитрий С.",
+                null,
+                null,
+                WithdrawalMethod.CARD_NUMBER,
+                "2200000000001234",
+                true
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Статус
+                Успешно
+                Сумма
+                2 420 ₽
+                Карта получателя
+                *1234
+                Получатель
+                Дмитрий С.
+                """, expected);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.receipt().card()).isEqualTo("*1234");
+    }
+
+    @Test
+    void validatesOtherBankCardReceiptByMaskedCardNumber() {
+        TinkoffReceiptVerificationRequest expected = new TinkoffReceiptVerificationRequest(
+                new BigDecimal("2420"),
+                null,
+                null,
+                null,
+                WithdrawalMethod.CARD_NUMBER,
+                "1234567890121234",
+                false
+        );
+
+        TinkoffReceiptValidationResult result = validator.validateText("""
+                Статус
+                Успешно
+                Сумма
+                2 420 ₽
+                Карта получателя
+                123456******1234
+                """, expected);
+
+        assertThat(result.valid()).isTrue();
+        assertThat(result.receipt().card()).isEqualTo("123456******1234");
     }
 }

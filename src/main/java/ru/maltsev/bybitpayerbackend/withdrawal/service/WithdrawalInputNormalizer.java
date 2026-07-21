@@ -39,4 +39,24 @@ public class WithdrawalInputNormalizer {
         }
         return value;
     }
+
+    public String normalizeCardNumber(String cardNumber) {
+        String digits = digitsOnly(cardNumber);
+        if (digits.length() != 16) {
+            throw BusinessException.badRequest("recipientCardNumber must contain exactly 16 digits");
+        }
+        return digits;
+    }
+
+    public String normalizeAccountNumber(String accountNumber) {
+        String digits = digitsOnly(accountNumber);
+        if (digits.length() != 20) {
+            throw BusinessException.badRequest("recipientAccountNumber must contain exactly 20 digits");
+        }
+        return digits;
+    }
+
+    private String digitsOnly(String value) {
+        return value == null ? "" : value.replaceAll("\\D", "");
+    }
 }

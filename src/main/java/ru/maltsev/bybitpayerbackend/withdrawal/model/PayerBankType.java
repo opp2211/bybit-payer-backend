@@ -2,7 +2,7 @@ package ru.maltsev.bybitpayerbackend.withdrawal.model;
 
 public enum PayerBankType {
     TBANK_AUTO(
-            "Т-банк (автоподтверждение)",
+            "Т-банк (авто)",
             "Принимаю платеж только с Т-банка, понадобится чек с офф. почты банка мне на почту",
             true
     ),

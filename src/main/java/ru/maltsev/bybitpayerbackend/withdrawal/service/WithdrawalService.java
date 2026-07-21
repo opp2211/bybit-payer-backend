@@ -34,7 +34,10 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalEventRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -144,23 +147,35 @@ public class WithdrawalService {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         BigDecimal amountRub = normalizer.normalizeAmount(request.amountRub());
-        String phone = normalizer.normalizePhone(request.recipientPhone());
-        BankEntity bank = bankService.getEnabledByExternalValue(request.recipientBank());
-        String recipientName = normalizer.normalizeRecipientName(request.recipientName());
+        PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(request.withdrawalMethod());
+        WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
+        WithdrawalRequisites requisites = normalizeRequisites(request, withdrawalMethod);
+        boolean thirdPartyTransfer = Boolean.TRUE.equals(request.thirdPartyTransfer());
 
         WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
         withdrawal.setPublicId(publicIdGenerator.generate(withdrawalRepository::existsByPublicId));
         withdrawal.setWorkspace(workspace);
         withdrawal.setCreatedBy(currentUser);
         withdrawal.setAmountRub(amountRub);
-        withdrawal.setRecipientPhone(phone);
-        withdrawal.setRecipientBank(bank);
-        withdrawal.setRecipientName(recipientName);
-        withdrawal.setPayerBankType(request.payerBankType());
+        withdrawal.setRecipientPhone(requisites.recipientPhone());
+        withdrawal.setRecipientBank(requisites.recipientBank());
+        withdrawal.setRecipientName(requisites.recipientName());
+        withdrawal.setRecipientCardNumber(requisites.recipientCardNumber());
+        withdrawal.setRecipientAccountNumber(requisites.recipientAccountNumber());
+        withdrawal.setRecipientCardTbank(requisites.recipientCardTbank());
+        withdrawal.setThirdPartyTransfer(thirdPartyTransfer);
+        withdrawal.setPayerBankType(payerBankType);
+        withdrawal.setWithdrawalMethod(withdrawalMethod);
         withdrawal.setStatus(WithdrawalStatus.NEW);
         withdrawal.setAttentionRequired(false);
         withdrawal.setCompletionSeen(true);
-        withdrawal.setQueueGroupKey(request.payerBankType().name());
+        withdrawal.setQueueGroupKey(WithdrawalPaymentRules.queueGroupKey(
+                payerBankType,
+                withdrawalMethod,
+                thirdPartyTransfer,
+                requisites.recipientCardTbank()
+        ));
         withdrawal.setCreatedAt(Instant.now(clock));
         withdrawal = withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.WITHDRAWAL_CREATED, "Withdrawal request created", currentUser);
@@ -172,7 +187,7 @@ public class WithdrawalService {
                 "Withdrawal created: id={}, amountRub={}, bank={}, status={}",
                 refreshed.getId(),
                 refreshed.getAmountRub(),
-                refreshed.getRecipientBank().getCode(),
+                refreshed.getRecipientBank() == null ? null : refreshed.getRecipientBank().getCode(),
                 refreshed.getStatus()
         );
         return mapper.toResponse(refreshed);
@@ -365,6 +380,55 @@ public class WithdrawalService {
     private WithdrawalRequestEntity getRequiredEntity(WorkspaceEntity workspace, String publicId) {
         return withdrawalRepository.findByWorkspaceAndPublicId(workspace, publicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + publicId));
+    }
+
+    private WithdrawalRequisites normalizeRequisites(
+            CreateWithdrawalRequest request,
+            WithdrawalMethod withdrawalMethod
+    ) {
+        return switch (withdrawalMethod) {
+            case SBP -> new WithdrawalRequisites(
+                    normalizer.normalizePhone(request.recipientPhone()),
+                    bankService.getEnabledByExternalValue(request.recipientBank()),
+                    normalizer.normalizeRecipientName(request.recipientName()),
+                    null,
+                    null,
+                    false
+            );
+            case CARD_NUMBER -> normalizeCardNumberRequisites(request);
+            case ACCOUNT_NUMBER -> new WithdrawalRequisites(
+                    null,
+                    null,
+                    normalizer.normalizeRecipientName(request.recipientName()),
+                    null,
+                    normalizer.normalizeAccountNumber(request.recipientAccountNumber()),
+                    false
+            );
+        };
+    }
+
+    private WithdrawalRequisites normalizeCardNumberRequisites(CreateWithdrawalRequest request) {
+        boolean recipientCardTbank = Boolean.TRUE.equals(request.recipientCardTbank());
+        return new WithdrawalRequisites(
+                null,
+                null,
+                recipientCardTbank
+                        ? normalizer.normalizeRecipientName(request.recipientName())
+                        : null,
+                normalizer.normalizeCardNumber(request.recipientCardNumber()),
+                null,
+                recipientCardTbank
+        );
+    }
+
+    private record WithdrawalRequisites(
+            String recipientPhone,
+            BankEntity recipientBank,
+            String recipientName,
+            String recipientCardNumber,
+            String recipientAccountNumber,
+            boolean recipientCardTbank
+    ) {
     }
 
 }

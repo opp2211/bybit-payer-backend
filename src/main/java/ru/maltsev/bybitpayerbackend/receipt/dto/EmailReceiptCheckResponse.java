@@ -17,6 +17,7 @@ public record EmailReceiptCheckResponse(
         String parsedRecipientPhone,
         String parsedRecipientBank,
         String parsedRecipientName,
+        String parsedRecipientCard,
         String parsedOperationDate,
         String parsedOperationId,
         String parsedReceiptNumber,

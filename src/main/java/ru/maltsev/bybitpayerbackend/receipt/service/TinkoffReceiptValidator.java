@@ -7,9 +7,11 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import ru.maltsev.bybitpayerbackend.receipt.dto.ParsedTinkoffReceipt;
+import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptData;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptValidationResult;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptVerificationRequest;
 import ru.maltsev.bybitpayerbackend.receipt.util.ReceiptText;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 
 @Service
 public class TinkoffReceiptValidator {
@@ -46,6 +48,36 @@ public class TinkoffReceiptValidator {
         if (!matchesAmount(receipt.amount(), expected.amount())) {
             errors.add("В чеке не найдена ожидаемая сумма: " + expected.amount());
         }
+
+        switch (WithdrawalMethod.effective(expected.withdrawalMethod())) {
+            case SBP -> validateSbpReceipt(expected, errors, receipt, rawText);
+            case CARD_NUMBER -> validateCardReceipt(expected, errors, receipt);
+            case ACCOUNT_NUMBER -> errors.add("Автоматическая проверка чека по номеру счета не поддерживается");
+        }
+
+        return new TinkoffReceiptValidationResult(errors.isEmpty(), receipt, List.copyOf(errors));
+    }
+
+    public boolean matchesReceiptKey(
+            TinkoffReceiptValidationResult validationResult,
+            TinkoffReceiptVerificationRequest expected
+    ) {
+        var receipt = validationResult.receipt();
+        return switch (WithdrawalMethod.effective(expected.withdrawalMethod())) {
+            case SBP -> matchesPhone(receipt.phone(), expected.phone());
+            case CARD_NUMBER -> Boolean.TRUE.equals(expected.recipientCardTbank())
+                    ? matchesCardLast4(receipt.card(), expected.cardNumber())
+                    : matchesCardMask(receipt.card(), expected.cardNumber());
+            case ACCOUNT_NUMBER -> false;
+        };
+    }
+
+    private void validateSbpReceipt(
+            TinkoffReceiptVerificationRequest expected,
+            List<String> errors,
+            TinkoffReceiptData receipt,
+            String rawText
+    ) {
         if (!matchesHumanValue(receipt.recipient(), expected.recipient())) {
             errors.add("В чеке не найден ожидаемый получатель: " + expected.recipient());
         }
@@ -58,8 +90,27 @@ public class TinkoffReceiptValidator {
                 && !matchesHumanValue(receipt.bank(), expected.bank())) {
             errors.add("В чеке не найден ожидаемый банк: " + expected.bank());
         }
+    }
 
-        return new TinkoffReceiptValidationResult(errors.isEmpty(), receipt, List.copyOf(errors));
+    private void validateCardReceipt(
+            TinkoffReceiptVerificationRequest expected,
+            List<String> errors,
+            TinkoffReceiptData receipt
+    ) {
+        if (Boolean.TRUE.equals(expected.recipientCardTbank())) {
+            if (!matchesCardLast4(receipt.card(), expected.cardNumber())) {
+                errors.add("В чеке не найдены ожидаемые последние 4 цифры карты: " + last4(expected.cardNumber()));
+            }
+            if (!matchesHumanValue(receipt.recipient(), expected.recipient())) {
+                errors.add("В чеке не найден ожидаемый получатель: " + expected.recipient());
+            }
+            return;
+        }
+
+        String expectedMask = expectedCardMask(expected.cardNumber());
+        if (!matchesCardMask(receipt.card(), expected.cardNumber())) {
+            errors.add("В чеке не найдена ожидаемая карта получателя: " + expectedMask);
+        }
     }
 
     private boolean matchesHumanValue(String source, String expected) {
@@ -87,7 +138,36 @@ public class TinkoffReceiptValidator {
         return ReceiptText.hasText(normalizedExpected) && normalizedActual.equals(normalizedExpected);
     }
 
+    private boolean matchesCardLast4(String actualCard, String expectedCard) {
+        String expectedLast4 = last4(expectedCard);
+        String actualDigits = digitsOnly(actualCard);
+        return ReceiptText.hasText(expectedLast4) && actualDigits.endsWith(expectedLast4);
+    }
+
+    private boolean matchesCardMask(String actualCard, String expectedCard) {
+        String expectedMask = expectedCardMask(expectedCard);
+        String normalizedActual = ReceiptText.nullToEmpty(actualCard).replaceAll("[^\\d*]", "");
+        return ReceiptText.hasText(expectedMask) && normalizedActual.equals(expectedMask);
+    }
+
     private boolean matchesAmount(BigDecimal actualAmount, BigDecimal expectedAmount) {
         return actualAmount != null && expectedAmount != null && actualAmount.compareTo(expectedAmount) == 0;
+    }
+
+    private String expectedCardMask(String expectedCard) {
+        String digits = digitsOnly(expectedCard);
+        if (digits.length() < 10) {
+            return "";
+        }
+        return digits.substring(0, 6) + "******" + digits.substring(digits.length() - 4);
+    }
+
+    private String last4(String value) {
+        String digits = digitsOnly(value);
+        return digits.length() < 4 ? "" : digits.substring(digits.length() - 4);
+    }
+
+    private String digitsOnly(String value) {
+        return ReceiptText.nullToEmpty(value).replaceAll("\\D", "");
     }
 }

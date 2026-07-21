@@ -137,10 +137,7 @@ public class TinkoffReceiptMailService {
             inspectedMessages++;
             for (MailAttachment attachment : attachments) {
                 TinkoffReceiptValidationResult validationResult = validator.validatePdf(attachment.content(), expected);
-                boolean recipientPhoneMatches = validator.matchesPhone(
-                        validationResult.receipt().phone(),
-                        expected.phone()
-                );
+                boolean recipientPhoneMatches = validator.matchesReceiptKey(validationResult, expected);
                 if (claimMatchingReceipt) {
                     message.setFlag(Flags.Flag.SEEN, recipientPhoneMatches);
                 } else if (validationResult.valid() && properties.isMarkSeenOnValid()) {

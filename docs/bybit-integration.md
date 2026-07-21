@@ -98,12 +98,13 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
-Managed ad text is built from the payer bank type of the earliest queue-managed
-withdrawal. Only withdrawals with that same type can be published together; amounts
-inside the active type are still merged as `2420 / 5000`. `TBANK_AUTO` uses the
-mail receipt wording and automatic release, while `SBERBANK` and `ANY_BANK` publish
-manual-review wording and stay queued until their type becomes the earliest active
-group.
+Managed ad text is built from the full payment group of the earliest queue-managed
+withdrawal. The group includes payer bank type, withdrawal method, third-party transfer
+flag, and for card-number withdrawals the `recipientCardTbank` flag. Only withdrawals
+with that same group can be published together; amounts inside the active group are
+still merged as `2420 / 5000`. `TBANK_AUTO` can publish either `SBP` or `CARD_NUMBER`
+groups and uses automatic mail receipt verification. `SBERBANK` publishes the
+`ACCOUNT_NUMBER` group, while `ANY_BANK` publishes the `SBP` group.
 
 Receipt verification must match the parsed status as a complete normalized value before calling
 `/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated
@@ -146,13 +147,32 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
 
-When an order is marked paid, only `TBANK_AUTO` starts mail receipt verification and sends the
-receipt email to chat. `SBERBANK` and `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as
-requiring operator attention, skip mailbox polling, and must be released manually.
+When an order is marked paid, only `TBANK_AUTO` withdrawals with `SBP` or `CARD_NUMBER`
+start mail receipt verification and send the receipt email to chat. `SBERBANK` and
+`ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
+skip mailbox polling, and must be released manually.
+
+For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
+from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.
+If a receipt contains both `Итого` and `Сумма`, `Сумма` is authoritative; `Итого`
+may include the sender commission and is used only as a fallback when no transfer
+amount field is present.
+
+For `TBANK_AUTO + CARD_NUMBER`, receipt verification checks `Успешно`, the transfer
+amount from `Сумма`, and `Карта получателя`. T-Bank card withdrawals match the last
+four card digits and the parsed recipient name, because T-Bank receipts show names
+as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
+`123456******1234`.
 
 Chat messages are not stored locally. Outgoing messages are sent directly to
 `/v5/p2p/order/message/send`, and withdrawal details read chat history only from
 `/v5/p2p/order/message/listpage`. If Bybit chat history is unavailable, the API
 returns an error instead of falling back to cached local messages.
+
+Automatic requisite messages depend on withdrawal method:
+
+- `SBP`: greeting, recipient phone, `bank, recipient name`, and receipt email for auto-release groups.
+- `CARD_NUMBER`: greeting, card number, optional recipient name, and receipt email for auto-release groups.
+- `ACCOUNT_NUMBER`: greeting, account number, and recipient name.
 
 Foreign orders are observation-only. They are shown while present in the active Bybit order list and removed locally after they disappear from that list. The application does not submit cancellation requests for them.

@@ -20,6 +20,7 @@ import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 
 @Getter
@@ -47,15 +48,31 @@ public class WithdrawalRequestEntity {
     @Column(name = "amount_rub", nullable = false, precision = 19, scale = 0)
     private BigDecimal amountRub;
 
-    @Column(name = "recipient_phone", nullable = false, length = 32)
+    @Column(name = "recipient_phone", length = 32)
     private String recipientPhone;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "recipient_bank", referencedColumnName = "code", nullable = false)
+    @ManyToOne
+    @JoinColumn(name = "recipient_bank", referencedColumnName = "code")
     private BankEntity recipientBank;
 
-    @Column(name = "recipient_name", nullable = false)
+    @Column(name = "recipient_name")
     private String recipientName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "withdrawal_method", nullable = false, length = 32)
+    private WithdrawalMethod withdrawalMethod;
+
+    @Column(name = "recipient_card_number", length = 32)
+    private String recipientCardNumber;
+
+    @Column(name = "recipient_account_number", length = 32)
+    private String recipientAccountNumber;
+
+    @Column(name = "recipient_card_tbank", nullable = false)
+    private boolean recipientCardTbank;
+
+    @Column(name = "third_party_transfer", nullable = false)
+    private boolean thirdPartyTransfer = true;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "payer_bank_type", nullable = false, length = 32)
