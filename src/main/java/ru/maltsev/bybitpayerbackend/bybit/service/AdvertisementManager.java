@@ -33,19 +33,12 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 public class AdvertisementManager {
 
     private static final int REFERENCE_RATE_15_POSITION = 15;
-    private static final String SENDER_FIRST_PARTY_REQUIREMENT =
-            "Работаю только с 1 лицами "
-                    + "(Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit)";
-    private static final String AD_DESCRIPTION_TEMPLATE =
-            "%s ___ Заходите только на сумму %s руб.  " +
-                    "- другие суммы - отмена! ___ %s";
 
     private final Map<Long, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -57,6 +50,7 @@ public class AdvertisementManager {
     private final WorkspaceSecretService workspaceSecretService;
     private final BybitProperties bybitProperties;
     private final BusinessProperties businessProperties;
+    private final AdvertisementDescriptionBuilder descriptionBuilder;
     private final Clock clock;
 
     public AdvertisementManager(
@@ -78,6 +72,7 @@ public class AdvertisementManager {
                 null,
                 bybitProperties,
                 businessProperties,
+                new AdvertisementDescriptionBuilder(),
                 clock
         );
     }
@@ -93,6 +88,7 @@ public class AdvertisementManager {
             WorkspaceSecretService workspaceSecretService,
             BybitProperties bybitProperties,
             BusinessProperties businessProperties,
+            AdvertisementDescriptionBuilder descriptionBuilder,
             Clock clock
     ) {
         this.withdrawalRepository = withdrawalRepository;
@@ -104,6 +100,7 @@ public class AdvertisementManager {
         this.workspaceSecretService = workspaceSecretService;
         this.bybitProperties = bybitProperties;
         this.businessProperties = businessProperties;
+        this.descriptionBuilder = descriptionBuilder;
         this.clock = clock;
     }
 
@@ -252,16 +249,13 @@ public class AdvertisementManager {
         BigDecimal quantityUsdt = rate == null || rate.signum() <= 0
                 ? null
                 : maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
-        String advertisementTail = WithdrawalPaymentRules.advertisementTail(
+        String description = descriptionBuilder.build(
                 effectivePayerBankType,
                 effectiveWithdrawalMethod,
                 thirdPartyTransfer,
-                recipientCardTbank
-        );
-        String description = AD_DESCRIPTION_TEMPLATE.formatted(
-                advertisementIntro(effectivePayerBankType, requireSenderFirstParty),
-                formatRubAmount(amountRub),
-                advertisementTail
+                recipientCardTbank,
+                requireSenderFirstParty,
+                List.of(amountRub)
         );
 
         return new AdvertisementPreview(rate, minRub, maxRub, quantityUsdt, description);
@@ -314,7 +308,9 @@ public class AdvertisementManager {
                 .map(this::queueGroupKey)
                 .orElse(null);
         Set<String> publishedAmountKeys = new HashSet<>();
+        List<BigDecimal> publishedAmounts = new ArrayList<>();
         List<WithdrawalRequestEntity> published = new ArrayList<>();
+        boolean descriptionFull = false;
         int queuedPosition = 1;
 
         for (WithdrawalRequestEntity withdrawal : candidates) {
@@ -322,9 +318,39 @@ public class AdvertisementManager {
             withdrawal.setQueueGroupKey(queueGroupKey);
             String amountKey = amountKey(withdrawal.getAmountRub());
             boolean matchesActiveGroup = queueGroupKey.equals(activeGroupKey);
+            boolean newAmount = !publishedAmountKeys.contains(amountKey);
             boolean canPublish = matchesActiveGroup
-                    && publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts()
-                    && publishedAmountKeys.add(amountKey);
+                    && !descriptionFull
+                    && newAmount
+                    && publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts();
+            if (canPublish) {
+                List<BigDecimal> prospectiveAmounts = new ArrayList<>(publishedAmounts);
+                prospectiveAmounts.add(withdrawal.getAmountRub());
+                if (descriptionBuilder.fits(
+                        withdrawal.getPayerBankType(),
+                        withdrawal.getWithdrawalMethod(),
+                        effectiveThirdPartyTransfer(withdrawal),
+                        withdrawal.isRecipientCardTbank(),
+                        withdrawal.isRequireSenderFirstParty(),
+                        prospectiveAmounts
+                )) {
+                    publishedAmountKeys.add(amountKey);
+                    publishedAmounts.add(withdrawal.getAmountRub());
+                } else if (publishedAmounts.isEmpty()) {
+                    descriptionBuilder.build(
+                            withdrawal.getPayerBankType(),
+                            withdrawal.getWithdrawalMethod(),
+                            effectiveThirdPartyTransfer(withdrawal),
+                            withdrawal.isRecipientCardTbank(),
+                            withdrawal.isRequireSenderFirstParty(),
+                            prospectiveAmounts
+                    );
+                    canPublish = false;
+                } else {
+                    descriptionFull = true;
+                    canPublish = false;
+                }
+            }
 
             if (canPublish) {
                 if (withdrawal.getStatus() != WithdrawalStatus.IN_WORK) {
@@ -400,22 +426,16 @@ public class AdvertisementManager {
                 .orElse(bybitProperties.getDefaultMaxRub())
                 .max(bybitProperties.getDefaultMaxRub());
         BigDecimal quantityUsdt = maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
-        String amountText = amounts.stream()
-                .map(this::formatRubAmount)
-                .collect(Collectors.joining(" / "));
         WithdrawalRequestEntity first = published.getFirst();
         PayerBankType payerBankType = PayerBankType.effective(first.getPayerBankType());
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(first.getWithdrawalMethod());
-        String advertisementTail = WithdrawalPaymentRules.advertisementTail(
+        String description = descriptionBuilder.build(
                 payerBankType,
                 withdrawalMethod,
                 effectiveThirdPartyTransfer(first),
-                first.isRecipientCardTbank()
-        );
-        String description = AD_DESCRIPTION_TEMPLATE.formatted(
-                advertisementIntro(payerBankType, first.isRequireSenderFirstParty()),
-                amountText,
-                advertisementTail
+                first.isRecipientCardTbank(),
+                first.isRequireSenderFirstParty(),
+                amounts
         );
 
         return new AdvertisementSnapshot(
@@ -566,10 +586,6 @@ public class AdvertisementManager {
         return amount.stripTrailingZeros().toPlainString();
     }
 
-    private String formatRubAmount(BigDecimal amount) {
-        return amount.stripTrailingZeros().toPlainString();
-    }
-
     private String queueGroupKey(WithdrawalRequestEntity withdrawal) {
         return WithdrawalPaymentRules.queueGroupKey(
                 withdrawal.getPayerBankType(),
@@ -582,12 +598,5 @@ public class AdvertisementManager {
 
     private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity withdrawal) {
         return withdrawal.getWithdrawalMethod() == null || withdrawal.isThirdPartyTransfer();
-    }
-
-    private String advertisementIntro(PayerBankType payerBankType, boolean requireSenderFirstParty) {
-        String intro = PayerBankType.effective(payerBankType).getAdvertisementIntro();
-        return requireSenderFirstParty
-                ? SENDER_FIRST_PARTY_REQUIREMENT + " ___ " + intro
-                : intro;
     }
 }

@@ -1,8 +1,11 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -13,13 +16,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitManagedAdStateEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.AdUpdateCommand;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitManagedAdStateRepository;
+import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
@@ -237,6 +240,109 @@ class AdvertisementManagerTests {
                         "Принимаю платеж только с Т-банка, понадобится чек с офф. почты банка мне на почту ___ Заходите только на сумму 2420 / 7000 руб.  - другие суммы - отмена! ___ Принимаю на карту 3 лица по СБП",
                         "Принимаю платеж только со Сбербанка ___ Заходите только на сумму 5000 руб.  - другие суммы - отмена! ___ Принимаю СБЕР-СБЕР по номеру счета на 3 лицо"
                 );
+    }
+
+    @Test
+    void keepsOverflowAmountsQueuedWhenDescriptionLimitIsReached() {
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        BybitManagedAdStateRepository stateRepository = mock(BybitManagedAdStateRepository.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitGateway gateway = mock(BybitGateway.class);
+        BybitProperties bybitProperties = new BybitProperties();
+        BusinessProperties businessProperties = new BusinessProperties();
+        BybitManagedAdStateEntity state = new BybitManagedAdStateEntity();
+        List<AdUpdateCommand> commands = new ArrayList<>();
+        List<WithdrawalRequestEntity> withdrawals = new ArrayList<>();
+
+        businessProperties.setMaxPublishedAmounts(100);
+        bybitProperties.setP2pAdId("ad-1");
+        bybitProperties.setRateSourceAdIndex(15);
+        bybitProperties.setRateSourceMinAdIndex(7);
+        for (int index = 0; index < 40; index++) {
+            withdrawals.add(withdrawal(
+                    (long) index + 1,
+                    "900000000000000000000000000000" + index,
+                    PayerBankType.TBANK_AUTO,
+                    "2026-06-09T10:%02d:00Z".formatted(index)
+            ));
+        }
+        when(stateRepository.findAll()).thenReturn(List.of(state));
+        when(stateRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(gateway.fetchReferenceRate(any(Integer.class))).thenReturn(new BigDecimal("1"));
+        when(gateway.fetchAvailableUsdtBalance()).thenReturn(new BigDecimal("999999999999999999999999999999999999"));
+        org.mockito.Mockito.doAnswer(invocation -> {
+            commands.add(invocation.getArgument(0));
+            return null;
+        }).when(gateway).updateManagedAd(any());
+        when(withdrawalRepository.findByStatusInOrderByCreatedAtAscIdAsc(any()))
+                .thenReturn(withdrawals);
+
+        AdvertisementManager manager = new AdvertisementManager(
+                withdrawalRepository,
+                stateRepository,
+                eventService,
+                gateway,
+                bybitProperties,
+                businessProperties,
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        manager.rebuildPublication();
+
+        long publishedCount = withdrawals.stream()
+                .filter(withdrawal -> withdrawal.getStatus() == WithdrawalStatus.IN_WORK)
+                .count();
+        long queuedCount = withdrawals.stream()
+                .filter(withdrawal -> withdrawal.getStatus() == WithdrawalStatus.QUEUED)
+                .count();
+        assertThat(commands).hasSize(1);
+        assertThat(commands.getFirst().description()).hasSizeLessThanOrEqualTo(
+                AdvertisementDescriptionBuilder.MAX_DESCRIPTION_LENGTH
+        );
+        assertThat(publishedCount).isGreaterThan(1);
+        assertThat(queuedCount).isGreaterThan(0);
+        assertThat(withdrawals.getLast().getQueuePosition()).isNotNull();
+        assertThat(commands.getFirst().description()).doesNotContain(
+                withdrawals.getLast().getAmountRub().toPlainString()
+        );
+    }
+
+    @Test
+    void rejectsPublicationWhenSingleAmountDescriptionExceedsLimit() {
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        BybitManagedAdStateRepository stateRepository = mock(BybitManagedAdStateRepository.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitGateway gateway = mock(BybitGateway.class);
+        BybitProperties bybitProperties = new BybitProperties();
+        BusinessProperties businessProperties = new BusinessProperties();
+        WithdrawalRequestEntity withdrawal = withdrawal(
+                1L,
+                "9".repeat(950),
+                PayerBankType.TBANK_AUTO,
+                "2026-06-09T10:00:00Z"
+        );
+
+        bybitProperties.setP2pAdId("ad-1");
+        bybitProperties.setRateSourceAdIndex(15);
+        bybitProperties.setRateSourceMinAdIndex(7);
+        when(withdrawalRepository.findByStatusInOrderByCreatedAtAscIdAsc(any()))
+                .thenReturn(List.of(withdrawal));
+
+        AdvertisementManager manager = new AdvertisementManager(
+                withdrawalRepository,
+                stateRepository,
+                eventService,
+                gateway,
+                bybitProperties,
+                businessProperties,
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        assertThatThrownBy(manager::rebuildPublication)
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Описание объявления превышает лимит Bybit");
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.NEW);
+        verify(gateway, never()).updateManagedAd(any());
     }
 
     private WithdrawalRequestEntity withdrawal(
