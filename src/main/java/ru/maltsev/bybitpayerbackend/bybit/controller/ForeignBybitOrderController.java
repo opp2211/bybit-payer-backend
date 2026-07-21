@@ -11,7 +11,7 @@ import ru.maltsev.bybitpayerbackend.bybit.dto.ForeignBybitOrderResponse;
 import ru.maltsev.bybitpayerbackend.bybit.service.ForeignBybitOrderService;
 
 @RestController
-@RequestMapping("/api/foreign-orders")
+@RequestMapping("/api/workspaces/{workspacePublicId}/foreign-orders")
 public class ForeignBybitOrderController {
 
     private final ForeignBybitOrderService foreignBybitOrderService;
@@ -21,13 +21,16 @@ public class ForeignBybitOrderController {
     }
 
     @GetMapping("/active")
-    public List<ForeignBybitOrderResponse> getActive() {
-        return foreignBybitOrderService.getActive();
+    public List<ForeignBybitOrderResponse> getActive(@PathVariable String workspacePublicId) {
+        return foreignBybitOrderService.getActive(workspacePublicId);
     }
 
     @GetMapping("/{id}")
-    public ForeignBybitOrderResponse getDetails(@PathVariable Long id) {
-        return foreignBybitOrderService.getDetails(id);
+    public ForeignBybitOrderResponse getDetails(
+            @PathVariable String workspacePublicId,
+            @PathVariable Long id
+    ) {
+        return foreignBybitOrderService.getDetails(workspacePublicId, id);
     }
 
 }

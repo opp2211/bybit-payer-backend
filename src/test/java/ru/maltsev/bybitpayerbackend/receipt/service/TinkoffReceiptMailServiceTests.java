@@ -80,8 +80,9 @@ class TinkoffReceiptMailServiceTests {
         when(validator.validatePdf(any(byte[].class), eq(expected)))
                 .thenReturn(validationResult(false, "+7 (999) 000-00-00"))
                 .thenReturn(validationResult(true, expected.phone()));
-        when(validator.matchesPhone("+7 (999) 000-00-00", expected.phone())).thenReturn(false);
-        when(validator.matchesPhone(expected.phone(), expected.phone())).thenReturn(true);
+        when(validator.matchesReceiptKey(any(), eq(expected)))
+                .thenReturn(false)
+                .thenReturn(true);
 
         List<TinkoffMailReceiptValidationResult> results = service.validateFolderMessages(
                 folder,
@@ -165,7 +166,8 @@ class TinkoffReceiptMailServiceTests {
                         "Успешно",
                         "Иван Петров",
                         phone,
-                        "Сбербанк"
+                        "Сбербанк",
+                        null
                 ),
                 valid ? List.of() : List.of("Телефон не совпал")
         );

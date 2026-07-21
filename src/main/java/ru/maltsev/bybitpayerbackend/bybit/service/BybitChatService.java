@@ -7,43 +7,106 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
+import ru.maltsev.bybitpayerbackend.security.service.CurrentUserService;
+import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class BybitChatService {
 
-    private static final String HELLO_MESSAGE = "Привет";
+    private static final String HELLO_MESSAGE = "\u041f\u0440\u0438\u0432\u0435\u0442";
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventService eventService;
     private final BybitGateway bybitGateway;
+    private final BybitCredentialsContext bybitCredentialsContext;
+    private final WorkspaceSecretService workspaceSecretService;
+    private final WorkspaceAccessService workspaceAccessService;
+    private final CurrentUserService currentUserService;
+    private final AuditService auditService;
     private final BusinessProperties businessProperties;
     private final Clock clock;
 
+    @Autowired
+    public BybitChatService(
+            WithdrawalRequestRepository withdrawalRepository,
+            WithdrawalEventService eventService,
+            BybitGateway bybitGateway,
+            BybitCredentialsContext bybitCredentialsContext,
+            WorkspaceSecretService workspaceSecretService,
+            WorkspaceAccessService workspaceAccessService,
+            CurrentUserService currentUserService,
+            AuditService auditService,
+            BusinessProperties businessProperties,
+            Clock clock
+    ) {
+        this.withdrawalRepository = withdrawalRepository;
+        this.eventService = eventService;
+        this.bybitGateway = bybitGateway;
+        this.bybitCredentialsContext = bybitCredentialsContext;
+        this.workspaceSecretService = workspaceSecretService;
+        this.workspaceAccessService = workspaceAccessService;
+        this.currentUserService = currentUserService;
+        this.auditService = auditService;
+        this.businessProperties = businessProperties;
+        this.clock = clock;
+    }
+
+    public BybitChatService(
+            WithdrawalRequestRepository withdrawalRepository,
+            WithdrawalEventService eventService,
+            BybitGateway bybitGateway,
+            BusinessProperties businessProperties,
+            Clock clock
+    ) {
+        this(
+                withdrawalRepository,
+                eventService,
+                bybitGateway,
+                new BybitCredentialsContext(),
+                null,
+                null,
+                null,
+                null,
+                businessProperties,
+                clock
+        );
+    }
+
     @Transactional
     public void sendRequisites(WithdrawalRequestEntity withdrawal) {
-        List<String> messages = List.of(
-                HELLO_MESSAGE,
-                withdrawal.getRecipientPhone(),
-                withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName(),
-                businessProperties.getReceiptEmailToSendInChat()
-        );
+        List<String> messages = new ArrayList<>();
+        messages.add(HELLO_MESSAGE);
+        messages.addAll(requisiteMessages(withdrawal));
+
+        PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+        if (WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod)) {
+            messages.add(businessProperties.getReceiptEmailToSendInChat());
+        }
 
         boolean allSent = true;
         for (String message : messages) {
@@ -74,30 +137,86 @@ public class BybitChatService {
         withdrawalRepository.save(withdrawal);
     }
 
+    private List<String> requisiteMessages(WithdrawalRequestEntity withdrawal) {
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+        return switch (withdrawalMethod) {
+            case SBP -> List.of(
+                    withdrawal.getRecipientPhone(),
+                    withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName()
+            );
+            case CARD_NUMBER -> {
+                List<String> messages = new ArrayList<>();
+                messages.add(withdrawal.getRecipientCardNumber());
+                if (StringUtils.hasText(withdrawal.getRecipientName())) {
+                    messages.add(withdrawal.getRecipientName());
+                }
+                yield messages;
+            }
+            case ACCOUNT_NUMBER -> List.of(
+                    withdrawal.getRecipientAccountNumber(),
+                    withdrawal.getRecipientName()
+            );
+        };
+    }
+
     @Transactional
     public void sendMessage(Long withdrawalId, String rawMessage) {
         WithdrawalRequestEntity withdrawal = withdrawalRepository.findById(withdrawalId)
-                .orElseThrow(() -> BusinessException.conflict("Заявка не найдена"));
+                .orElseThrow(() -> BusinessException.conflict("Withdrawal not found"));
         if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
-            throw BusinessException.conflict("К заявке ещё не привязан Bybit-ордер");
+            throw BusinessException.conflict("Bybit order is not linked to withdrawal yet");
         }
 
         String message = rawMessage.trim();
         if (!sendBybitMessage(withdrawal, message)) {
-            throw BusinessException.conflict("Не удалось отправить сообщение в чат Bybit");
+            throw BusinessException.conflict("Failed to send message to Bybit chat");
         }
         eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator");
     }
 
+    @Transactional
+    public void sendMessage(String workspacePublicId, String withdrawalPublicId, String rawMessage) {
+        UserEntity currentUser = currentUserService.currentUser();
+        WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
+                .orElseThrow(() -> BusinessException.conflict("Withdrawal not found"));
+        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            throw BusinessException.conflict("Bybit order is not linked to withdrawal yet");
+        }
+
+        String message = rawMessage.trim();
+        boolean sent = bybitCredentialsContext.callWith(
+                workspaceSecretService.bybitCredentials(workspace),
+                () -> sendBybitMessage(withdrawal, message)
+        );
+        if (!sent) {
+            throw BusinessException.conflict("Failed to send message to Bybit chat");
+        }
+        eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator", currentUser);
+        auditService.add(currentUser, workspace, "BYBIT_CHAT_MESSAGE_SENT", "WITHDRAWAL", withdrawal.getPublicId(), null);
+    }
+
     @Transactional(readOnly = true)
     public List<ChatMessageLogResponse> getMessages(WithdrawalRequestEntity withdrawal) {
+        return getMessages(null, withdrawal);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChatMessageLogResponse> getMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
         if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
             return List.of();
         }
 
         List<BybitChatMessage> remoteMessages;
         try {
-            remoteMessages = bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId());
+            if (workspace == null || workspaceSecretService == null) {
+                remoteMessages = bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId());
+            } else {
+                remoteMessages = bybitCredentialsContext.callWith(
+                        workspaceSecretService.bybitCredentials(workspace),
+                        () -> bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId())
+                );
+            }
         } catch (RuntimeException exception) {
             log.warn(
                     "Bybit chat history fetch failed: withdrawalId={}, orderId={}, message={}",
@@ -105,7 +224,7 @@ public class BybitChatService {
                     withdrawal.getBybitOrderId(),
                     exception.getMessage()
             );
-            throw BusinessException.serviceUnavailable("История чата Bybit временно недоступна");
+            throw BusinessException.serviceUnavailable("Bybit chat history is temporarily unavailable");
         }
 
         List<ChatMessageLogResponse> result = new ArrayList<>();
@@ -162,8 +281,8 @@ public class BybitChatService {
     private String authorName(BybitChatMessage message, String direction) {
         return switch (direction) {
             case "SYSTEM" -> "Bybit";
-            case "OUTGOING" -> "Вы";
-            default -> StringUtils.hasText(message.nickname()) ? message.nickname() : "Контрагент";
+            case "OUTGOING" -> "\u0412\u044b";
+            default -> StringUtils.hasText(message.nickname()) ? message.nickname() : "\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442";
         };
     }
 

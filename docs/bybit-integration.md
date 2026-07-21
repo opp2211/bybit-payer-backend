@@ -1,8 +1,21 @@
 # Bybit P2P Integration
 
 The application uses the real HTTP gateway with HMAC-SHA256 request signing.
+Bybit credentials are workspace-scoped: every workspace stores its own API key,
+API secret, and P2P ad id. Secrets are encrypted in the database with
+`APP_ENCRYPTION_KEY`.
 
-Required env for real gateway:
+Generate `APP_ENCRYPTION_KEY` as a base64 encoded 32-byte value and keep it
+stable between deployments. If the key changes, previously saved workspace
+secrets cannot be decrypted.
+
+Required env for encrypted workspace secrets:
+
+```env
+APP_ENCRYPTION_KEY=
+```
+
+Legacy bootstrap env for the initial `ExPrime` workspace:
 
 ```env
 BYBIT_API_KEY=
@@ -14,6 +27,11 @@ BYBIT_ORDER_SOURCE_SIDE=SELL
 BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
 ```
+
+`BYBIT_API_KEY`, `BYBIT_API_SECRET`, and `BYBIT_P2P_AD_ID` are no longer the
+single global account used by all users. They are read only during bootstrap to
+create/migrate the initial `ExPrime` workspace. New workspaces are created via
+the workspace API/UI and must pass Bybit readiness before they are saved.
 
 `BYBIT_BASE_URL` is required and must contain the Bybit API origin, for example
 `https://api.bybit.com` or `https://api-testnet.bybit.com`. The gateway trims trailing slashes.
@@ -80,6 +98,19 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
+Managed ad text is built from the full payment group of the earliest queue-managed
+withdrawal. The group includes payer bank type, withdrawal method, the sender first-party
+requirement flag, third-party transfer flag, and for card-number withdrawals the
+`recipientCardTbank` flag. Only withdrawals with that same group can be published together;
+amounts inside the active group are still merged as `2420 / 5000`. `TBANK_AUTO` can publish
+either `SBP` or `CARD_NUMBER` groups and uses automatic mail receipt verification.
+`SBERBANK` publishes the `ACCOUNT_NUMBER` group, while `ANY_BANK` publishes the `SBP` group.
+
+When `requireSenderFirstParty` is enabled, the managed ad description starts with
+`Работаю только с 1 лицами (Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit)`.
+The flag is stored on the withdrawal for future chat/agent logic; currently it only changes
+the managed ad text and preview.
+
 Receipt verification must match the parsed status as a complete normalized value before calling
 `/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated
 as `Успешно` by substring matching.
@@ -121,9 +152,32 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
 
+When an order is marked paid, only `TBANK_AUTO` withdrawals with `SBP` or `CARD_NUMBER`
+start mail receipt verification and send the receipt email to chat. `SBERBANK` and
+`ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
+skip mailbox polling, and must be released manually.
+
+For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
+from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.
+If a receipt contains both `Итого` and `Сумма`, `Сумма` is authoritative; `Итого`
+may include the sender commission and is used only as a fallback when no transfer
+amount field is present.
+
+For `TBANK_AUTO + CARD_NUMBER`, receipt verification checks `Успешно`, the transfer
+amount from `Сумма`, and `Карта получателя`. T-Bank card withdrawals match the last
+four card digits and the parsed recipient name, because T-Bank receipts show names
+as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
+`123456******1234`.
+
 Chat messages are not stored locally. Outgoing messages are sent directly to
 `/v5/p2p/order/message/send`, and withdrawal details read chat history only from
 `/v5/p2p/order/message/listpage`. If Bybit chat history is unavailable, the API
 returns an error instead of falling back to cached local messages.
+
+Automatic requisite messages depend on withdrawal method:
+
+- `SBP`: greeting, recipient phone, `bank, recipient name`, and receipt email for auto-release groups.
+- `CARD_NUMBER`: greeting, card number, optional recipient name, and receipt email for auto-release groups.
+- `ACCOUNT_NUMBER`: greeting, account number, and recipient name.
 
 Foreign orders are observation-only. They are shown while present in the active Bybit order list and removed locally after they disappear from that list. The application does not submit cancellation requests for them.

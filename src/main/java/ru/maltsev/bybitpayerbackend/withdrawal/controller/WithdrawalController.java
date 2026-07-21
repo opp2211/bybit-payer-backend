@@ -22,13 +22,14 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.bybit.dto.SendChatMessageRequest;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalService;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 
 @RestController
-@RequestMapping("/api/withdrawals")
+@RequestMapping("/api/workspaces/{workspacePublicId}/withdrawals")
 @RequiredArgsConstructor
 public class WithdrawalController {
 
@@ -37,55 +38,80 @@ public class WithdrawalController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public WithdrawalResponse create(@Valid @RequestBody CreateWithdrawalRequest request) {
-        return withdrawalService.create(request);
+    public WithdrawalResponse create(
+            @PathVariable String workspacePublicId,
+            @Valid @RequestBody CreateWithdrawalRequest request
+    ) {
+        return withdrawalService.create(workspacePublicId, request);
+    }
+
+    @PostMapping("/preview")
+    public WithdrawalAdvertisementPreviewResponse previewAdvertisement(
+            @PathVariable String workspacePublicId,
+            @Valid @RequestBody CreateWithdrawalRequest request
+    ) {
+        return withdrawalService.previewAdvertisement(workspacePublicId, request);
     }
 
     @GetMapping("/active")
-    public List<WithdrawalResponse> getActive() {
-        return withdrawalService.getActive();
+    public List<WithdrawalResponse> getActive(@PathVariable String workspacePublicId) {
+        return withdrawalService.getActive(workspacePublicId);
     }
 
     @GetMapping("/completed")
-    public List<WithdrawalResponse> getCompleted() {
-        return withdrawalService.getCompleted();
+    public List<WithdrawalResponse> getCompleted(@PathVariable String workspacePublicId) {
+        return withdrawalService.getCompleted(workspacePublicId);
     }
 
-    @GetMapping("/{id}")
-    public WithdrawalDetailsResponse getDetails(@PathVariable Long id) {
-        return withdrawalService.getDetails(id);
+    @GetMapping("/{withdrawalPublicId}")
+    public WithdrawalDetailsResponse getDetails(
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId
+    ) {
+        return withdrawalService.getDetails(workspacePublicId, withdrawalPublicId);
     }
 
-    @DeleteMapping("/{id}")
-    public WithdrawalResponse cancel(@PathVariable Long id) {
-        return withdrawalService.cancel(id);
+    @DeleteMapping("/{withdrawalPublicId}")
+    public WithdrawalResponse cancel(
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId
+    ) {
+        return withdrawalService.cancel(workspacePublicId, withdrawalPublicId);
     }
 
-    @PostMapping("/{id}/mark-seen")
-    public WithdrawalResponse markSeen(@PathVariable Long id) {
-        return withdrawalService.markCompletedSeen(id);
+    @PostMapping("/{withdrawalPublicId}/mark-seen")
+    public WithdrawalResponse markSeen(
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId
+    ) {
+        return withdrawalService.markCompletedSeen(workspacePublicId, withdrawalPublicId);
     }
 
-    @PostMapping("/{id}/release")
-    public WithdrawalResponse release(@PathVariable Long id) {
-        return withdrawalService.release(id);
+    @PostMapping("/{withdrawalPublicId}/release")
+    public WithdrawalResponse release(
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId
+    ) {
+        return withdrawalService.release(workspacePublicId, withdrawalPublicId);
     }
 
-    @PostMapping("/{id}/chat/messages")
+    @PostMapping("/{withdrawalPublicId}/chat/messages")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void sendChatMessage(
-            @PathVariable Long id,
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId,
             @Valid @RequestBody SendChatMessageRequest request
     ) {
-        chatService.sendMessage(id, request.message());
+        chatService.sendMessage(workspacePublicId, withdrawalPublicId, request.message());
     }
 
-    @GetMapping("/{id}/receipts/{receiptId}/pdf")
+    @GetMapping("/{withdrawalPublicId}/receipts/{receiptId}/pdf")
     public ResponseEntity<byte[]> getReceiptPdf(
-            @PathVariable Long id,
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId,
             @PathVariable Long receiptId
     ) {
-        EmailReceiptCheckEntity receipt = withdrawalService.getReceiptPdf(id, receiptId);
+        EmailReceiptCheckEntity receipt = withdrawalService.getReceiptPdf(workspacePublicId, withdrawalPublicId, receiptId);
         String filename = receipt.getPdfFilename() == null ? "receipt.pdf" : receipt.getPdfFilename();
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)

@@ -26,6 +26,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -58,6 +59,7 @@ public class HttpBybitGateway implements BybitGateway {
     );
 
     private final BybitProperties properties;
+    private final BybitCredentialsContext credentialsContext;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final HttpClient httpClient;
@@ -65,7 +67,13 @@ public class HttpBybitGateway implements BybitGateway {
     private long nextRequestAtNanos;
 
     public HttpBybitGateway(BybitProperties properties, Clock clock) {
+        this(properties, new BybitCredentialsContext(), clock);
+    }
+
+    @Autowired
+    public HttpBybitGateway(BybitProperties properties, BybitCredentialsContext credentialsContext, Clock clock) {
         this.properties = properties;
+        this.credentialsContext = credentialsContext;
         this.objectMapper = new ObjectMapper();
         this.clock = clock;
         this.httpClient = HttpClient.newBuilder()
@@ -86,8 +94,8 @@ public class HttpBybitGateway implements BybitGateway {
         BigDecimal availableUsdt = null;
         try {
             availableUsdt = fetchAvailableUsdtBalance();
-            if (StringUtils.hasText(properties.getP2pAdId())) {
-                getManagedAdDetails(properties.getP2pAdId());
+            if (StringUtils.hasText(p2pAdId())) {
+                getManagedAdDetails(p2pAdId());
             }
             return new BybitReadiness(true, "HTTP", "Bybit HTTP gateway is available", availableUsdt);
         } catch (Exception exception) {
@@ -325,12 +333,12 @@ public class HttpBybitGateway implements BybitGateway {
         long timestamp = clock.millis();
         String recvWindow = String.valueOf(properties.getRecvWindowMs());
         String payloadForSignature = "GET".equals(method) ? queryString : bodyJson;
-        String signature = hmacSha256(timestamp + properties.getApiKey() + recvWindow + payloadForSignature);
+        String signature = hmacSha256(timestamp + apiKey() + recvWindow + payloadForSignature);
         URI uri = URI.create(baseUrl() + path + (StringUtils.hasText(queryString) ? "?" + queryString : ""));
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(30))
-                .header("X-BAPI-API-KEY", properties.getApiKey())
+                .header("X-BAPI-API-KEY", apiKey())
                 .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
                 .header("X-BAPI-RECV-WINDOW", recvWindow)
                 .header("X-BAPI-SIGN", signature);
@@ -387,7 +395,7 @@ public class HttpBybitGateway implements BybitGateway {
     private String hmacSha256(String payload) {
         try {
             Mac mac = Mac.getInstance(HMAC_SHA256);
-            mac.init(new SecretKeySpec(properties.getApiSecret().getBytes(StandardCharsets.UTF_8), HMAC_SHA256));
+            mac.init(new SecretKeySpec(apiSecret().getBytes(StandardCharsets.UTF_8), HMAC_SHA256));
             byte[] bytes = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
             StringBuilder builder = new StringBuilder(bytes.length * 2);
             for (byte value : bytes) {
@@ -451,11 +459,29 @@ public class HttpBybitGateway implements BybitGateway {
         return normalizedBaseUrl;
     }
 
+    private String apiKey() {
+        return credentialsContext.current()
+                .map(BybitCredentials::apiKey)
+                .orElse(properties.getApiKey());
+    }
+
+    private String apiSecret() {
+        return credentialsContext.current()
+                .map(BybitCredentials::apiSecret)
+                .orElse(properties.getApiSecret());
+    }
+
+    private String p2pAdId() {
+        return credentialsContext.current()
+                .map(BybitCredentials::p2pAdId)
+                .orElse(properties.getP2pAdId());
+    }
+
     private boolean isConfigured() {
-        return StringUtils.hasText(properties.getApiKey())
-                && StringUtils.hasText(properties.getApiSecret())
+        return StringUtils.hasText(apiKey())
+                && StringUtils.hasText(apiSecret())
                 && StringUtils.hasText(properties.getBaseUrl())
-                && StringUtils.hasText(properties.getP2pAdId());
+                && StringUtils.hasText(p2pAdId());
     }
 
     private void ensureConfigured() {

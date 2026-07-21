@@ -18,6 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 
 @Getter
@@ -33,6 +34,10 @@ public class BybitOrderBindingEntity {
 
     @Column(name = "bybit_order_id", nullable = false, length = 128)
     private String bybitOrderId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "workspace_id")
+    private WorkspaceEntity workspace;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "withdrawal_request_id", nullable = false)

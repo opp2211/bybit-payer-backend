@@ -10,18 +10,35 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalEventResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalEventEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 
 @Component
 public class WithdrawalMapper {
 
     public WithdrawalResponse toResponse(WithdrawalRequestEntity entity) {
+        PayerBankType payerBankType = PayerBankType.effective(entity.getPayerBankType());
+        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(entity.getWithdrawalMethod());
+        boolean thirdPartyTransfer = effectiveThirdPartyTransfer(entity);
         return new WithdrawalResponse(
                 entity.getId(),
+                entity.getPublicId(),
                 entity.getAmountRub(),
                 entity.getRecipientPhone(),
-                entity.getRecipientBank().getCode(),
-                entity.getRecipientBank().getTitle(),
+                entity.getRecipientBank() == null ? null : entity.getRecipientBank().getCode(),
+                entity.getRecipientBank() == null ? null : entity.getRecipientBank().getTitle(),
                 entity.getRecipientName(),
+                entity.getRecipientCardNumber(),
+                entity.getRecipientAccountNumber(),
+                entity.isRecipientCardTbank(),
+                thirdPartyTransfer,
+                payerBankType.name(),
+                payerBankType.getTitle(),
+                entity.isRequireSenderFirstParty(),
+                withdrawalMethod.name(),
+                withdrawalMethod.getTitle(),
+                WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod),
                 entity.getStatus().name(),
                 entity.getStatus().getTitle(),
                 entity.isAttentionRequired(),
@@ -44,9 +61,14 @@ public class WithdrawalMapper {
                 entity.getCancelledAt(),
                 entity.getLastError(),
                 entity.getLastWarning(),
+                entity.getCreatedBy() == null ? null : entity.getCreatedBy().getUsername(),
                 entity.getStatus().canBeCancelled(),
                 entity.getStatus().canBeReleased() && entity.getBybitOrderId() != null
         );
+    }
+
+    private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity entity) {
+        return entity.getWithdrawalMethod() == null || entity.isThirdPartyTransfer();
     }
 
     private java.math.BigDecimal totalUsdt(WithdrawalRequestEntity entity) {
@@ -66,6 +88,8 @@ public class WithdrawalMapper {
                 entity.getEventType().name(),
                 entity.getMessage(),
                 entity.getPayloadJson(),
+                entity.getActorType().name(),
+                entity.getActor() == null ? null : entity.getActor().getUsername(),
                 entity.getCreatedAt()
         );
     }
@@ -85,6 +109,7 @@ public class WithdrawalMapper {
                 entity.getParsedRecipientPhone(),
                 entity.getParsedRecipientBank(),
                 entity.getParsedRecipientName(),
+                entity.getParsedRecipientCard(),
                 entity.getParsedOperationDate(),
                 entity.getParsedOperationId(),
                 entity.getParsedReceiptNumber(),

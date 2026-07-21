@@ -17,6 +17,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalActorType;
+import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
 
 @Getter
 @Setter
@@ -42,6 +44,14 @@ public class WithdrawalEventEntity {
 
     @Column(name = "payload_json")
     private String payloadJson;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "actor_user_id")
+    private UserEntity actor;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "actor_type", nullable = false, length = 32)
+    private WithdrawalActorType actorType = WithdrawalActorType.SYSTEM;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

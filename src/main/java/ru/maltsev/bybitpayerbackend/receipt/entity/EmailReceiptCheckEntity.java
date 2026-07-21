@@ -71,6 +71,9 @@ public class EmailReceiptCheckEntity {
     @Column(name = "parsed_recipient_name")
     private String parsedRecipientName;
 
+    @Column(name = "parsed_recipient_card", length = 64)
+    private String parsedRecipientCard;
+
     @Column(name = "parsed_operation_date", length = 128)
     private String parsedOperationDate;
 

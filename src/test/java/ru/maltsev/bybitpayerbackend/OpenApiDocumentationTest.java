@@ -39,8 +39,9 @@ class OpenApiDocumentationTest {
         MvcResult result = mockMvc.perform(get("/v3/api-docs").with(user("operator")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.openapi").exists())
-                .andExpect(jsonPath("$.paths['/api/withdrawals'].post").exists())
-                .andExpect(jsonPath("$.paths['/api/system/status'].get").exists())
+                .andExpect(jsonPath("$.paths['/api/workspaces/{workspacePublicId}/withdrawals'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/workspaces/{workspacePublicId}/withdrawals/preview'].post").exists())
+                .andExpect(jsonPath("$.paths['/api/workspaces/{workspacePublicId}/system/status'].get").exists())
                 .andReturn();
 
         String generated = prettyPrint(result.getResponse().getContentAsString(StandardCharsets.UTF_8));

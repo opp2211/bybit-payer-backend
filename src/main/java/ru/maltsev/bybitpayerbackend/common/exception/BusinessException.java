@@ -27,6 +27,10 @@ public class BusinessException extends RuntimeException {
         return new BusinessException(HttpStatus.CONFLICT, message, details);
     }
 
+    public static BusinessException forbidden(String message) {
+        return new BusinessException(HttpStatus.FORBIDDEN, message, List.of());
+    }
+
     public static BusinessException serviceUnavailable(String message) {
         return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, message, List.of());
     }

@@ -51,27 +51,48 @@ public class TinkoffReceiptMailService {
     }
 
     public List<TinkoffMailReceiptValidationResult> findAndValidate(TinkoffReceiptVerificationRequest expected) {
-        return findAndValidate(expected, Set.of(), false);
+        return findAndValidate(expected, Set.of(), false, defaultMailbox());
     }
 
     public List<TinkoffMailReceiptValidationResult> findForWithdrawal(
             TinkoffReceiptVerificationRequest expected,
             Set<String> ignoredReceiptKeys
     ) {
-        return findAndValidate(expected, ignoredReceiptKeys, true);
+        return findAndValidate(expected, ignoredReceiptKeys, true, defaultMailbox());
+    }
+
+    public List<TinkoffMailReceiptValidationResult> findForWithdrawal(
+            TinkoffReceiptVerificationRequest expected,
+            Set<String> ignoredReceiptKeys,
+            ReceiptMailbox mailbox
+    ) {
+        return findAndValidate(expected, ignoredReceiptKeys, true, mailbox);
+    }
+
+    public void checkConnection(ReceiptMailbox mailbox) {
+        ensureEnabled();
+        try {
+            Session session = Session.getInstance(mailSessionProperties(mailbox));
+            try (Store store = session.getStore(mailbox.protocol())) {
+                store.connect(mailbox.host(), mailbox.port(), mailbox.username(), mailbox.password());
+            }
+        } catch (MessagingException exception) {
+            throw new ReceiptMailException("Mail connection check failed", exception);
+        }
     }
 
     private List<TinkoffMailReceiptValidationResult> findAndValidate(
             TinkoffReceiptVerificationRequest expected,
             Set<String> ignoredReceiptKeys,
-            boolean claimMatchingReceipt
+            boolean claimMatchingReceipt,
+            ReceiptMailbox mailbox
     ) {
         ensureEnabled();
 
         try {
-            Session session = Session.getInstance(mailSessionProperties());
-            try (Store store = session.getStore("imaps")) {
-                store.connect(properties.getHost(), properties.getPort(), properties.getUsername(), properties.getPassword());
+            Session session = Session.getInstance(mailSessionProperties(mailbox));
+            try (Store store = session.getStore(mailbox.protocol())) {
+                store.connect(mailbox.host(), mailbox.port(), mailbox.username(), mailbox.password());
                 Folder folder = store.getFolder(properties.getFolder());
                 folder.open(Folder.READ_WRITE);
                 try {
@@ -116,10 +137,7 @@ public class TinkoffReceiptMailService {
             inspectedMessages++;
             for (MailAttachment attachment : attachments) {
                 TinkoffReceiptValidationResult validationResult = validator.validatePdf(attachment.content(), expected);
-                boolean recipientPhoneMatches = validator.matchesPhone(
-                        validationResult.receipt().phone(),
-                        expected.phone()
-                );
+                boolean recipientPhoneMatches = validator.matchesReceiptKey(validationResult, expected);
                 if (claimMatchingReceipt) {
                     message.setFlag(Flags.Flag.SEEN, recipientPhoneMatches);
                 } else if (validationResult.valid() && properties.isMarkSeenOnValid()) {
@@ -308,16 +326,35 @@ public class TinkoffReceiptMailService {
     }
 
     Properties mailSessionProperties() {
+        return mailSessionProperties(defaultMailbox());
+    }
+
+    Properties mailSessionProperties(ReceiptMailbox mailbox) {
         Properties sessionProperties = new Properties();
-        sessionProperties.put("mail.store.protocol", "imaps");
-        sessionProperties.put("mail.imaps.ssl.enable", "true");
-        sessionProperties.put("mail.imaps.host", properties.getHost());
-        sessionProperties.put("mail.imaps.port", String.valueOf(properties.getPort()));
-        sessionProperties.put("mail.imaps.connectiontimeout", String.valueOf(properties.getConnectionTimeout().toMillis()));
-        sessionProperties.put("mail.imaps.timeout", String.valueOf(properties.getReadTimeout().toMillis()));
-        sessionProperties.put("mail.imaps.writetimeout", String.valueOf(properties.getReadTimeout().toMillis()));
-        sessionProperties.put("mail.imaps.peek", "true");
+        String protocol = mailbox.protocol();
+        sessionProperties.put("mail.store.protocol", protocol);
+        sessionProperties.put("mail." + protocol + ".host", mailbox.host());
+        sessionProperties.put("mail." + protocol + ".port", String.valueOf(mailbox.port()));
+        sessionProperties.put("mail." + protocol + ".connectiontimeout", String.valueOf(properties.getConnectionTimeout().toMillis()));
+        sessionProperties.put("mail." + protocol + ".timeout", String.valueOf(properties.getReadTimeout().toMillis()));
+        sessionProperties.put("mail." + protocol + ".writetimeout", String.valueOf(properties.getReadTimeout().toMillis()));
+        sessionProperties.put("mail." + protocol + ".peek", "true");
+        if (mailbox.ssl()) {
+            sessionProperties.put("mail.imaps.ssl.enable", "true");
+        } else {
+            sessionProperties.put("mail.imap.starttls.enable", "true");
+            sessionProperties.put("mail.imap.starttls.required", "true");
+        }
         return sessionProperties;
+    }
+
+    private ReceiptMailbox defaultMailbox() {
+        return new ReceiptMailbox(
+                properties.getHost(),
+                properties.getPort(),
+                properties.getUsername(),
+                properties.getPassword()
+        );
     }
 
     private void ensureEnabled() {

@@ -7,16 +7,24 @@ import java.util.List;
 import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
@@ -27,6 +35,9 @@ import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 public class BybitOrderWatcher {
 
     private final BybitGateway bybitGateway;
+    private final BybitCredentialsContext bybitCredentialsContext;
+    private final WorkspaceSecretService workspaceSecretService;
+    private final WorkspaceRepository workspaceRepository;
     private final WithdrawalRequestRepository withdrawalRepository;
     private final BybitOrderBindingRepository bindingRepository;
     private final ForeignBybitOrderService foreignOrderService;
@@ -35,6 +46,7 @@ public class BybitOrderWatcher {
     private final WithdrawalEventService eventService;
     private final Clock clock;
 
+    @Autowired
     public BybitOrderWatcher(
             BybitGateway bybitGateway,
             WithdrawalRequestRepository withdrawalRepository,
@@ -45,7 +57,38 @@ public class BybitOrderWatcher {
             WithdrawalEventService eventService,
             Clock clock
     ) {
+        this(
+                bybitGateway,
+                new BybitCredentialsContext(),
+                null,
+                null,
+                withdrawalRepository,
+                bindingRepository,
+                foreignOrderService,
+                advertisementManager,
+                chatService,
+                eventService,
+                clock
+        );
+    }
+
+    public BybitOrderWatcher(
+            BybitGateway bybitGateway,
+            BybitCredentialsContext bybitCredentialsContext,
+            WorkspaceSecretService workspaceSecretService,
+            WorkspaceRepository workspaceRepository,
+            WithdrawalRequestRepository withdrawalRepository,
+            BybitOrderBindingRepository bindingRepository,
+            ForeignBybitOrderService foreignOrderService,
+            AdvertisementManager advertisementManager,
+            BybitChatService chatService,
+            WithdrawalEventService eventService,
+            Clock clock
+    ) {
         this.bybitGateway = bybitGateway;
+        this.bybitCredentialsContext = bybitCredentialsContext;
+        this.workspaceSecretService = workspaceSecretService;
+        this.workspaceRepository = workspaceRepository;
         this.withdrawalRepository = withdrawalRepository;
         this.bindingRepository = bindingRepository;
         this.foreignOrderService = foreignOrderService;
@@ -58,28 +101,65 @@ public class BybitOrderWatcher {
     @Scheduled(fixedDelayString = "${bybit.p2p-poll-interval:5s}")
     @Transactional
     public void pollActiveOrders() {
+        if (workspaceRepository == null) {
+            pollActiveOrdersLegacy();
+            return;
+        }
+        for (WorkspaceEntity workspace : workspaceRepository.findByEnabledTrueAndDeletedAtIsNullOrderByCreatedAtAscIdAsc()) {
+            pollActiveOrders(workspace);
+        }
+    }
+
+    private void pollActiveOrdersLegacy() {
         List<BybitP2pOrder> orders = bybitGateway.fetchActiveOrders();
         Set<String> activeOrderIds = new HashSet<>();
         boolean publicationChanged = false;
-        if (!orders.isEmpty()) {
-            log.debug("Active Bybit orders fetched: count={}", orders.size());
-        }
         for (BybitP2pOrder order : orders) {
             activeOrderIds.add(order.bybitOrderId());
-            publicationChanged = processOrder(order) || publicationChanged;
+            publicationChanged = processOrderLegacy(order) || publicationChanged;
         }
-        publicationChanged = syncMissingBoundOrders(activeOrderIds) || publicationChanged;
+        publicationChanged = syncMissingBoundOrdersLegacy(activeOrderIds) || publicationChanged;
         foreignOrderService.removeMissingOrders(activeOrderIds);
         if (publicationChanged) {
             advertisementManager.rebuildPublication();
         }
     }
 
-    private boolean processOrder(BybitP2pOrder order) {
+    private void pollActiveOrders(WorkspaceEntity workspace) {
+        bybitCredentialsContext.runWith(
+                workspaceSecretService.bybitCredentials(workspace),
+                () -> {
+                    List<BybitP2pOrder> orders = bybitGateway.fetchActiveOrders();
+                    Set<String> activeOrderIds = new HashSet<>();
+                    boolean publicationChanged = false;
+                    if (!orders.isEmpty()) {
+                        log.debug("Active Bybit orders fetched: workspace={}, count={}", workspace.getPublicId(), orders.size());
+                    }
+                    for (BybitP2pOrder order : orders) {
+                        activeOrderIds.add(order.bybitOrderId());
+                        publicationChanged = processOrder(workspace, order) || publicationChanged;
+                    }
+                    publicationChanged = syncMissingBoundOrders(workspace, activeOrderIds) || publicationChanged;
+                    foreignOrderService.removeMissingOrders(workspace, activeOrderIds);
+                    if (publicationChanged) {
+                        advertisementManager.rebuildPublication(workspace);
+                    }
+                }
+        );
+    }
+
+    private boolean processOrder(WorkspaceEntity workspace, BybitP2pOrder order) {
+        return bindingRepository.findByWorkspaceAndBybitOrderId(workspace, order.bybitOrderId())
+                .map(binding -> binding.getStatus() == OrderBindingStatus.ACTIVE
+                        && syncBoundOrder(binding, order))
+                .orElseGet(() -> bindOrMarkForeign(workspace, order));
+    }
+
+    private boolean processOrderLegacy(BybitP2pOrder order) {
         return bindingRepository.findByBybitOrderId(order.bybitOrderId())
                 .map(binding -> binding.getStatus() == OrderBindingStatus.ACTIVE
                         && syncBoundOrder(binding, order))
-                .orElseGet(() -> bindOrMarkForeign(order));
+                .orElseGet(() -> bindOrMarkForeignLegacy(order));
     }
 
     private boolean syncBoundOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
@@ -93,13 +173,32 @@ public class BybitOrderWatcher {
             return false;
         }
         if (order.paid() && withdrawal.getStatus() == WithdrawalStatus.PAYMENT_IN_PROGRESS) {
+            PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
+            WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
+            boolean autoReleaseEnabled = WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod);
             Instant now = Instant.now(clock);
             withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
             withdrawal.setPaidAt(now);
-            withdrawal.setVerificationStartedAt(now);
+            if (autoReleaseEnabled) {
+                withdrawal.setVerificationStartedAt(now);
+                withdrawal.setAttentionRequired(false);
+                withdrawal.setLastWarning(null);
+            } else {
+                withdrawal.setVerificationStartedAt(null);
+                withdrawal.setAttentionRequired(true);
+                withdrawal.setLastWarning("Платеж ожидает ручной проверки оператором");
+            }
             withdrawalRepository.save(withdrawal);
             eventService.add(withdrawal, WithdrawalEventType.ORDER_PAID, "Bybit order marked as paid");
-            eventService.add(withdrawal, WithdrawalEventType.MAIL_CHECK_STARTED, "Mail verification started");
+            if (autoReleaseEnabled) {
+                eventService.add(withdrawal, WithdrawalEventType.MAIL_CHECK_STARTED, "Mail verification started");
+            } else {
+                eventService.add(
+                        withdrawal,
+                        WithdrawalEventType.ATTENTION_REQUIRED,
+                        "Payment requires manual operator verification"
+                );
+            }
             log.info(
                     "Bybit order marked as paid: orderId={}, withdrawalId={}",
                     order.bybitOrderId(),
@@ -109,7 +208,56 @@ public class BybitOrderWatcher {
         return false;
     }
 
-    private boolean bindOrMarkForeign(BybitP2pOrder order) {
+    private boolean bindOrMarkForeign(WorkspaceEntity workspace, BybitP2pOrder order) {
+        if (foreignOrderService.refreshIfTracked(workspace, order)) {
+            return false;
+        }
+
+        List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
+                .findByWorkspaceAndStatusAndAmountRubOrderByCreatedAtAscIdAsc(
+                        workspace,
+                        WithdrawalStatus.IN_WORK,
+                        order.amountRub()
+                );
+        if (matchingWithdrawals.size() != 1) {
+            String reason = matchingWithdrawals.isEmpty()
+                    ? "No IN_WORK withdrawal with this amount"
+                    : "More than one IN_WORK withdrawal matched this amount";
+            foreignOrderService.upsert(workspace, order, reason);
+            return false;
+        }
+
+        WithdrawalRequestEntity withdrawal = matchingWithdrawals.getFirst();
+        Instant now = Instant.now(clock);
+        withdrawal.setStatus(WithdrawalStatus.PAYMENT_IN_PROGRESS);
+        withdrawal.setBybitOrderId(order.bybitOrderId());
+        withdrawal.setBybitOrderAmountRub(order.amountRub());
+        withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
+        withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
+        withdrawal.setOrderFoundAt(now);
+        withdrawalRepository.save(withdrawal);
+
+        BybitOrderBindingEntity binding = new BybitOrderBindingEntity();
+        binding.setWorkspace(workspace);
+        binding.setBybitOrderId(order.bybitOrderId());
+        binding.setWithdrawalRequest(withdrawal);
+        binding.setAmountRub(order.amountRub());
+        binding.setStatus(OrderBindingStatus.ACTIVE);
+        binding.setCreatedAt(now);
+        bindingRepository.save(binding);
+
+        eventService.add(withdrawal, WithdrawalEventType.ORDER_FOUND, "Bybit order matched withdrawal");
+        chatService.sendRequisites(withdrawal);
+        log.info(
+                "Bybit order bound to withdrawal: orderId={}, withdrawalId={}, amountRub={}",
+                order.bybitOrderId(),
+                withdrawal.getId(),
+                order.amountRub()
+        );
+        return true;
+    }
+
+    private boolean bindOrMarkForeignLegacy(BybitP2pOrder order) {
         if (foreignOrderService.refreshIfTracked(order)) {
             return false;
         }
@@ -144,16 +292,39 @@ public class BybitOrderWatcher {
 
         eventService.add(withdrawal, WithdrawalEventType.ORDER_FOUND, "Bybit order matched withdrawal");
         chatService.sendRequisites(withdrawal);
-        log.info(
-                "Bybit order bound to withdrawal: orderId={}, withdrawalId={}, amountRub={}",
-                order.bybitOrderId(),
-                withdrawal.getId(),
-                order.amountRub()
-        );
         return true;
     }
 
-    private boolean syncMissingBoundOrders(Set<String> activeOrderIds) {
+    private boolean syncMissingBoundOrders(WorkspaceEntity workspace, Set<String> activeOrderIds) {
+        boolean publicationChanged = false;
+        for (BybitOrderBindingEntity binding : bindingRepository.findAllByWorkspaceAndStatus(workspace, OrderBindingStatus.ACTIVE)) {
+            if (activeOrderIds.contains(binding.getBybitOrderId())) {
+                continue;
+            }
+            try {
+                publicationChanged = bybitCredentialsContext.callWith(
+                        workspaceSecretService.bybitCredentials(workspace),
+                        () -> bybitGateway.fetchOrder(binding.getBybitOrderId())
+                )
+                        .map(order -> syncBoundOrder(binding, order))
+                        .orElse(false) || publicationChanged;
+            } catch (Exception exception) {
+                WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
+                withdrawal.setAttentionRequired(true);
+                withdrawal.setLastError(exception.getMessage());
+                withdrawalRepository.save(withdrawal);
+                log.warn(
+                        "Bound Bybit order status refresh failed: orderId={}, withdrawalId={}, message={}",
+                        binding.getBybitOrderId(),
+                        withdrawal.getId(),
+                        exception.getMessage()
+                );
+            }
+        }
+        return publicationChanged;
+    }
+
+    private boolean syncMissingBoundOrdersLegacy(Set<String> activeOrderIds) {
         boolean publicationChanged = false;
         for (BybitOrderBindingEntity binding : bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)) {
             if (activeOrderIds.contains(binding.getBybitOrderId())) {
@@ -168,12 +339,6 @@ public class BybitOrderWatcher {
                 withdrawal.setAttentionRequired(true);
                 withdrawal.setLastError(exception.getMessage());
                 withdrawalRepository.save(withdrawal);
-                log.warn(
-                        "Bound Bybit order status refresh failed: orderId={}, withdrawalId={}, message={}",
-                        binding.getBybitOrderId(),
-                        withdrawal.getId(),
-                        exception.getMessage()
-                );
             }
         }
         return publicationChanged;
