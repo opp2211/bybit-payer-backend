@@ -29,6 +29,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 
 class BybitChatServiceTests {
 
@@ -119,7 +120,6 @@ class BybitChatServiceTests {
 
         BusinessProperties businessProperties = new BusinessProperties();
         businessProperties.setChatMessageDelay(Duration.ZERO);
-        businessProperties.setReceiptEmailToSendInChat("receipts@example.com");
         BybitChatService service = new BybitChatService(
                 withdrawalRepository,
                 eventService,
@@ -152,7 +152,8 @@ class BybitChatServiceTests {
 
         BusinessProperties businessProperties = new BusinessProperties();
         businessProperties.setChatMessageDelay(Duration.ZERO);
-        businessProperties.setReceiptEmailToSendInChat("receipts@example.com");
+        WorkspaceEntity workspace = new WorkspaceEntity();
+        workspace.setReceiptEmail("receipts@example.com");
         BybitChatService service = new BybitChatService(
                 withdrawalRepository,
                 eventService,
@@ -161,7 +162,7 @@ class BybitChatServiceTests {
                 Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
         );
 
-        service.sendRequisites(withdrawal);
+        service.sendRequisites(workspace, withdrawal, true);
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(bybitGateway, times(4)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());

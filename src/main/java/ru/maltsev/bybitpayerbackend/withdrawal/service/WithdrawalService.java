@@ -9,7 +9,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
+import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentResponse;
+import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bank.service.BankService;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
@@ -67,6 +70,7 @@ public class WithdrawalService {
     private final WorkspaceSecretService workspaceSecretService;
     private final PublicIdGenerator publicIdGenerator;
     private final AuditService auditService;
+    private final AiChatAgentService aiChatAgentService;
     private final Clock clock;
 
     @Autowired
@@ -88,6 +92,7 @@ public class WithdrawalService {
             WorkspaceSecretService workspaceSecretService,
             PublicIdGenerator publicIdGenerator,
             AuditService auditService,
+            AiChatAgentService aiChatAgentService,
             Clock clock
     ) {
         this.withdrawalRepository = withdrawalRepository;
@@ -107,6 +112,7 @@ public class WithdrawalService {
         this.workspaceSecretService = workspaceSecretService;
         this.publicIdGenerator = publicIdGenerator;
         this.auditService = auditService;
+        this.aiChatAgentService = aiChatAgentService;
         this.clock = clock;
     }
 
@@ -142,6 +148,7 @@ public class WithdrawalService {
                 null,
                 null,
                 null,
+                null,
                 clock
         );
     }
@@ -155,6 +162,10 @@ public class WithdrawalService {
         PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(request.withdrawalMethod());
         WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
+        if (WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod)
+                && !StringUtils.hasText(workspace.getReceiptEmail())) {
+            throw BusinessException.badRequest("Workspace receipt email is required for T-Bank auto withdrawals");
+        }
         WithdrawalRequisites requisites = normalizeRequisites(request, withdrawalMethod);
         boolean thirdPartyTransfer = Boolean.TRUE.equals(request.thirdPartyTransfer());
         boolean requireSenderFirstParty = Boolean.TRUE.equals(request.requireSenderFirstParty());
@@ -278,7 +289,8 @@ public class WithdrawalService {
                 chatService.getMessages(workspace, withdrawal),
                 receiptCheckRepository.findByWithdrawalRequest_IdOrderByCreatedAtDescIdDesc(withdrawal.getId()).stream()
                         .map(mapper::toReceiptCheckResponse)
-                        .toList()
+                        .toList(),
+                aiChatAgentService == null ? AiChatAgentResponse.absent() : aiChatAgentService.getResponse(withdrawal)
         );
     }
 

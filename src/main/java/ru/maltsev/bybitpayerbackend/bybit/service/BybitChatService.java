@@ -98,22 +98,23 @@ public class BybitChatService {
 
     @Transactional
     public void sendRequisites(WithdrawalRequestEntity withdrawal) {
+        sendRequisites(withdrawal.getWorkspace(), withdrawal, WithdrawalPaymentRules.isAutoReleaseEnabled(
+                withdrawal.getPayerBankType(),
+                withdrawal.getWithdrawalMethod()
+        ));
+    }
+
+    @Transactional
+    public void sendRequisites(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal, boolean includeReceiptEmail) {
         List<String> messages = new ArrayList<>();
         messages.add(HELLO_MESSAGE);
         messages.addAll(requisiteMessages(withdrawal));
 
-        PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
-        WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
-        if (WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod)) {
-            messages.add(businessProperties.getReceiptEmailToSendInChat());
+        if (includeReceiptEmail && workspace != null && StringUtils.hasText(workspace.getReceiptEmail())) {
+            messages.add(workspace.getReceiptEmail());
         }
 
-        boolean allSent = true;
-        for (String message : messages) {
-            boolean sent = sendBybitMessage(withdrawal, message);
-            allSent = allSent && sent;
-            sleepBetweenMessages();
-        }
+        boolean allSent = sendAgentMessages(workspace, withdrawal, messages);
 
         if (allSent) {
             withdrawal.setRequisitesSentAt(Instant.now(clock));
@@ -137,7 +138,7 @@ public class BybitChatService {
         withdrawalRepository.save(withdrawal);
     }
 
-    private List<String> requisiteMessages(WithdrawalRequestEntity withdrawal) {
+    public List<String> requisiteMessages(WithdrawalRequestEntity withdrawal) {
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
         return switch (withdrawalMethod) {
             case SBP -> List.of(
@@ -157,6 +158,28 @@ public class BybitChatService {
                     withdrawal.getRecipientName()
             );
         };
+    }
+
+    @Transactional
+    public boolean sendAgentMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal, List<String> messages) {
+        boolean allSent = true;
+        for (String message : messages) {
+            if (!StringUtils.hasText(message)) {
+                continue;
+            }
+            boolean sent;
+            if (workspace != null && workspaceSecretService != null) {
+                sent = bybitCredentialsContext.callWith(
+                        workspaceSecretService.bybitCredentials(workspace),
+                        () -> sendBybitMessage(withdrawal, message.trim())
+                );
+            } else {
+                sent = sendBybitMessage(withdrawal, message.trim());
+            }
+            allSent = allSent && sent;
+            sleepBetweenMessages();
+        }
+        return allSent;
     }
 
     @Transactional

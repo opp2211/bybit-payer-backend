@@ -75,7 +75,21 @@ business:
   usdt-quantity-scale: ${USDT_QUANTITY_SCALE:4}
   max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
   p2p-fee-rate: ${P2P_FEE_RATE:0.00275}
-  receipt-email-to-send-in-chat: ${RECEIPT_EMAIL_TO_SEND_IN_CHAT:}
+
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  model: ${OPENAI_MODEL:gpt-5-nano}
+  responses-url: ${OPENAI_RESPONSES_URL:https://api.openai.com/v1/responses}
+  timeout: ${OPENAI_TIMEOUT_SECONDS:15}s
+
+ai:
+  chat-agent:
+    enabled: ${AI_CHAT_AGENT_ENABLED:true}
+    dry-run-by-default: ${AI_CHAT_AGENT_DRY_RUN_BY_DEFAULT:false}
+    poll-interval: ${AI_CHAT_AGENT_POLL_INTERVAL_SECONDS:5}s
+    max-unclear-replies-per-step: ${AI_CHAT_AGENT_MAX_UNCLEAR_REPLIES_PER_STEP:3}
+    max-cancellation-replies: ${AI_CHAT_AGENT_MAX_CANCELLATION_REPLIES:8}
+    max-paid-without-receipt-replies: ${AI_CHAT_AGENT_MAX_PAID_WITHOUT_RECEIPT_REPLIES:3}
 
 system:
   status-refresh-interval: ${SYSTEM_STATUS_REFRESH_INTERVAL_SECONDS:30}s

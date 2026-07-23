@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
@@ -45,10 +46,10 @@ public class BybitOrderWatcher {
     private final ForeignBybitOrderService foreignOrderService;
     private final AdvertisementManager advertisementManager;
     private final BybitChatService chatService;
+    private final AiChatAgentService aiChatAgentService;
     private final WithdrawalEventService eventService;
     private final Clock clock;
 
-    @Autowired
     public BybitOrderWatcher(
             BybitGateway bybitGateway,
             WithdrawalRequestRepository withdrawalRepository,
@@ -69,6 +70,7 @@ public class BybitOrderWatcher {
                 foreignOrderService,
                 advertisementManager,
                 chatService,
+                null,
                 eventService,
                 clock
         );
@@ -87,6 +89,37 @@ public class BybitOrderWatcher {
             WithdrawalEventService eventService,
             Clock clock
     ) {
+        this(
+                bybitGateway,
+                bybitCredentialsContext,
+                workspaceSecretService,
+                workspaceRepository,
+                withdrawalRepository,
+                bindingRepository,
+                foreignOrderService,
+                advertisementManager,
+                chatService,
+                null,
+                eventService,
+                clock
+        );
+    }
+
+    @Autowired
+    public BybitOrderWatcher(
+            BybitGateway bybitGateway,
+            BybitCredentialsContext bybitCredentialsContext,
+            WorkspaceSecretService workspaceSecretService,
+            WorkspaceRepository workspaceRepository,
+            WithdrawalRequestRepository withdrawalRepository,
+            BybitOrderBindingRepository bindingRepository,
+            ForeignBybitOrderService foreignOrderService,
+            AdvertisementManager advertisementManager,
+            BybitChatService chatService,
+            AiChatAgentService aiChatAgentService,
+            WithdrawalEventService eventService,
+            Clock clock
+    ) {
         this.bybitGateway = bybitGateway;
         this.bybitCredentialsContext = bybitCredentialsContext;
         this.workspaceSecretService = workspaceSecretService;
@@ -96,6 +129,7 @@ public class BybitOrderWatcher {
         this.foreignOrderService = foreignOrderService;
         this.advertisementManager = advertisementManager;
         this.chatService = chatService;
+        this.aiChatAgentService = aiChatAgentService;
         this.eventService = eventService;
         this.clock = clock;
     }
@@ -175,9 +209,9 @@ public class BybitOrderWatcher {
             return false;
         }
         if (order.paid() && withdrawal.getStatus() == WithdrawalStatus.PAYMENT_IN_PROGRESS) {
-            PayerBankType payerBankType = PayerBankType.effective(withdrawal.getPayerBankType());
-            WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
-            boolean autoReleaseEnabled = WithdrawalPaymentRules.isAutoReleaseEnabled(payerBankType, withdrawalMethod);
+            boolean autoReleaseEnabled = aiChatAgentService == null
+                    ? WithdrawalPaymentRules.isAutoReleaseEnabled(withdrawal.getPayerBankType(), withdrawal.getWithdrawalMethod())
+                    : aiChatAgentService.isAutoReceiptEnabled(withdrawal);
             Instant now = Instant.now(clock);
             withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
             withdrawal.setPaidAt(now);
@@ -246,7 +280,11 @@ public class BybitOrderWatcher {
         bindingRepository.save(binding);
 
         eventService.add(withdrawal, WithdrawalEventType.ORDER_FOUND, "Bybit order matched withdrawal");
-        chatService.sendRequisites(withdrawal);
+        if (aiChatAgentService == null) {
+            chatService.sendRequisites(withdrawal);
+        } else {
+            aiChatAgentService.startForOrder(workspace, withdrawal);
+        }
         log.info(
                 "Bybit order bound to withdrawal: orderId={}, withdrawalId={}, amountRub={}",
                 order.bybitOrderId(),
@@ -291,7 +329,11 @@ public class BybitOrderWatcher {
         bindingRepository.save(binding);
 
         eventService.add(withdrawal, WithdrawalEventType.ORDER_FOUND, "Bybit order matched withdrawal");
-        chatService.sendRequisites(withdrawal);
+        if (aiChatAgentService == null) {
+            chatService.sendRequisites(withdrawal);
+        } else {
+            aiChatAgentService.startForOrder(withdrawal.getWorkspace(), withdrawal);
+        }
         return true;
     }
 

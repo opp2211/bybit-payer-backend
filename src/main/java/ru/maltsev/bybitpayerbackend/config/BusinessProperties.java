@@ -17,6 +17,5 @@ public class BusinessProperties {
     private int usdtQuantityScale = 4;
     private int maxPublishedAmounts = 10;
     private BigDecimal p2pFeeRate = new BigDecimal("0.00275");
-    private String receiptEmailToSendInChat;
 
 }
