@@ -1770,13 +1770,13 @@
       "CsrfToken" : {
         "type" : "object",
         "properties" : {
-          "token" : {
+          "headerName" : {
             "type" : "string"
           },
           "parameterName" : {
             "type" : "string"
           },
-          "headerName" : {
+          "token" : {
             "type" : "string"
           }
         }
