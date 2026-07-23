@@ -53,8 +53,18 @@ SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 
 The `local` profile uses `FakeBybitGateway` instead of `HttpBybitGateway`.
 The fake gateway returns a stable reference rate and available USDT balance,
-returns no active orders or chat messages, and treats ad updates, ad unpublishing,
-chat messages, and order releases as no-op operations with log messages only.
+and keeps managed ads, P2P orders, and order chat in memory. Managed ad updates
+populate the local P2P simulator, `fetchActiveOrders`, `fetchOrder`, and
+`fetchChatMessages` return the simulated state, operator messages are appended
+to the simulated order chat, and `releaseOrder` marks the simulated order as
+finished.
+
+The local-only simulator API is available at `/api/local/bybit-simulator/**`.
+It is intended for manual testing and lets a fake counterparty create an order
+from a published managed ad, write text messages, mark the order as paid, or
+cancel it. The normal order watcher still performs matching, foreign-order
+tracking, paid-state handling, and withdrawal completion through the
+`BybitGateway` interface.
 
 The same profile also disables receipt mail polling through
 `receipt.mail.enabled=false`, so a local instance does not read or mark messages

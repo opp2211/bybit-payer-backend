@@ -157,6 +157,7 @@ public class WithdrawalService {
     public WithdrawalResponse create(String workspacePublicId, CreateWithdrawalRequest request) {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        ensureWorkspaceBybitAdConfigured(workspace);
         WithdrawalAmountMode amountMode = WithdrawalAmountMode.effective(request.amountMode());
         WithdrawalAmountSelection amountSelection = normalizeAmountSelection(request, amountMode);
         PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
@@ -218,6 +219,7 @@ public class WithdrawalService {
     ) {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        ensureWorkspaceBybitAdConfigured(workspace);
         WithdrawalAmountMode amountMode = WithdrawalAmountMode.effective(request.amountMode());
         WithdrawalAmountSelection amountSelection = normalizeAmountSelection(request, amountMode);
         PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
@@ -493,6 +495,12 @@ public class WithdrawalService {
     private WithdrawalRequestEntity getRequiredEntity(WorkspaceEntity workspace, String publicId) {
         return withdrawalRepository.findByWorkspaceAndPublicId(workspace, publicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + publicId));
+    }
+
+    private void ensureWorkspaceBybitAdConfigured(WorkspaceEntity workspace) {
+        if (!StringUtils.hasText(workspace.getBybitP2pAdId())) {
+            throw BusinessException.badRequest("Workspace Bybit P2P ad id is required");
+        }
     }
 
     private WithdrawalRequisites normalizeRequisites(

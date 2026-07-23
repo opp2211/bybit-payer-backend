@@ -74,6 +74,7 @@ public class SecurityConfig {
                                 "/api/auth/csrf",
                                 "/api/auth/login",
                                 "/api/auth/register",
+                                "/api/local/bybit-simulator/**",
                                 "/actuator/health/**"
                         ).permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
