@@ -18,6 +18,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
@@ -242,23 +243,74 @@ public class AdvertisementManager {
             boolean requireSenderFirstParty,
             BigDecimal rate
     ) {
-        PayerBankType effectivePayerBankType = PayerBankType.effective(payerBankType);
-        WithdrawalMethod effectiveWithdrawalMethod = WithdrawalMethod.effective(withdrawalMethod);
-        BigDecimal minRub = amountRub.min(bybitProperties.getDefaultMinRub());
-        BigDecimal maxRub = amountRub.max(bybitProperties.getDefaultMaxRub());
-        BigDecimal quantityUsdt = rate == null || rate.signum() <= 0
-                ? null
-                : maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
-        String description = descriptionBuilder.build(
-                effectivePayerBankType,
-                effectiveWithdrawalMethod,
+        return buildSingleWithdrawalPreview(
+                WithdrawalAmountMode.FIXED,
+                amountRub,
+                amountRub,
+                amountRub,
+                payerBankType,
+                withdrawalMethod,
                 thirdPartyTransfer,
                 recipientCardTbank,
                 requireSenderFirstParty,
-                List.of(amountRub)
+                rate
         );
+    }
 
-        return new AdvertisementPreview(rate, minRub, maxRub, quantityUsdt, description);
+    public AdvertisementPreview buildSingleWithdrawalPreview(
+            WithdrawalAmountMode amountMode,
+            BigDecimal amountRub,
+            BigDecimal amountMinRub,
+            BigDecimal amountMaxRub,
+            PayerBankType payerBankType,
+            WithdrawalMethod withdrawalMethod,
+            boolean thirdPartyTransfer,
+            boolean recipientCardTbank,
+            boolean requireSenderFirstParty,
+            BigDecimal rate
+    ) {
+        WithdrawalAmountMode effectiveAmountMode = WithdrawalAmountMode.effective(amountMode);
+        PayerBankType effectivePayerBankType = PayerBankType.effective(payerBankType);
+        WithdrawalMethod effectiveWithdrawalMethod = WithdrawalMethod.effective(withdrawalMethod);
+        BigDecimal effectiveAmountMinRub = effectiveAmountMode == WithdrawalAmountMode.RANGE
+                ? amountMinRub
+                : amountRub;
+        BigDecimal effectiveAmountMaxRub = effectiveAmountMode == WithdrawalAmountMode.RANGE
+                ? amountMaxRub
+                : amountRub;
+        BigDecimal minRub = effectiveAmountMinRub.min(bybitProperties.getDefaultMinRub());
+        BigDecimal maxRub = effectiveAmountMaxRub.max(bybitProperties.getDefaultMaxRub());
+        BigDecimal quantityUsdt = rate == null || rate.signum() <= 0
+                ? null
+                : maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
+        String description = effectiveAmountMode == WithdrawalAmountMode.RANGE
+                ? descriptionBuilder.buildRange(
+                        effectivePayerBankType,
+                        effectiveWithdrawalMethod,
+                        thirdPartyTransfer,
+                        recipientCardTbank,
+                        requireSenderFirstParty,
+                        effectiveAmountMinRub,
+                        effectiveAmountMaxRub
+                )
+                : descriptionBuilder.build(
+                        effectivePayerBankType,
+                        effectiveWithdrawalMethod,
+                        thirdPartyTransfer,
+                        recipientCardTbank,
+                        requireSenderFirstParty,
+                        List.of(amountRub)
+                );
+
+        return new AdvertisementPreview(
+                rate,
+                minRub,
+                maxRub,
+                effectiveAmountMinRub,
+                effectiveAmountMaxRub,
+                quantityUsdt,
+                description
+        );
     }
 
     private void rebuildPublicationLegacy() {
@@ -307,6 +359,10 @@ public class AdvertisementManager {
                 .findFirst()
                 .map(this::queueGroupKey)
                 .orElse(null);
+        boolean activeGroupIsRange = candidates.stream()
+                .findFirst()
+                .map(this::isRange)
+                .orElse(false);
         Set<String> publishedAmountKeys = new HashSet<>();
         List<BigDecimal> publishedAmounts = new ArrayList<>();
         List<WithdrawalRequestEntity> published = new ArrayList<>();
@@ -316,39 +372,58 @@ public class AdvertisementManager {
         for (WithdrawalRequestEntity withdrawal : candidates) {
             String queueGroupKey = queueGroupKey(withdrawal);
             withdrawal.setQueueGroupKey(queueGroupKey);
-            String amountKey = amountKey(withdrawal.getAmountRub());
-            boolean matchesActiveGroup = queueGroupKey.equals(activeGroupKey);
-            boolean newAmount = !publishedAmountKeys.contains(amountKey);
-            boolean canPublish = matchesActiveGroup
-                    && !descriptionFull
-                    && newAmount
-                    && publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts();
-            if (canPublish) {
-                List<BigDecimal> prospectiveAmounts = new ArrayList<>(publishedAmounts);
-                prospectiveAmounts.add(withdrawal.getAmountRub());
-                if (descriptionBuilder.fits(
-                        withdrawal.getPayerBankType(),
-                        withdrawal.getWithdrawalMethod(),
-                        effectiveThirdPartyTransfer(withdrawal),
-                        withdrawal.isRecipientCardTbank(),
-                        withdrawal.isRequireSenderFirstParty(),
-                        prospectiveAmounts
-                )) {
-                    publishedAmountKeys.add(amountKey);
-                    publishedAmounts.add(withdrawal.getAmountRub());
-                } else if (publishedAmounts.isEmpty()) {
-                    descriptionBuilder.build(
+            boolean canPublish;
+            if (isRange(withdrawal)) {
+                canPublish = activeGroupIsRange
+                        && queueGroupKey.equals(activeGroupKey)
+                        && published.isEmpty();
+                if (canPublish) {
+                    descriptionBuilder.buildRange(
+                            withdrawal.getPayerBankType(),
+                            withdrawal.getWithdrawalMethod(),
+                            effectiveThirdPartyTransfer(withdrawal),
+                            withdrawal.isRecipientCardTbank(),
+                            withdrawal.isRequireSenderFirstParty(),
+                            amountMinRub(withdrawal),
+                            amountMaxRub(withdrawal)
+                    );
+                }
+            } else {
+                BigDecimal amountRub = fixedAmountRub(withdrawal);
+                String amountKey = amountKey(amountRub);
+                boolean matchesActiveGroup = !activeGroupIsRange && queueGroupKey.equals(activeGroupKey);
+                boolean newAmount = !publishedAmountKeys.contains(amountKey);
+                canPublish = matchesActiveGroup
+                        && !descriptionFull
+                        && newAmount
+                        && publishedAmountKeys.size() < businessProperties.getMaxPublishedAmounts();
+                if (canPublish) {
+                    List<BigDecimal> prospectiveAmounts = new ArrayList<>(publishedAmounts);
+                    prospectiveAmounts.add(amountRub);
+                    if (descriptionBuilder.fits(
                             withdrawal.getPayerBankType(),
                             withdrawal.getWithdrawalMethod(),
                             effectiveThirdPartyTransfer(withdrawal),
                             withdrawal.isRecipientCardTbank(),
                             withdrawal.isRequireSenderFirstParty(),
                             prospectiveAmounts
-                    );
-                    canPublish = false;
-                } else {
-                    descriptionFull = true;
-                    canPublish = false;
+                    )) {
+                        publishedAmountKeys.add(amountKey);
+                        publishedAmounts.add(amountRub);
+                    } else if (publishedAmounts.isEmpty()) {
+                        descriptionBuilder.build(
+                                withdrawal.getPayerBankType(),
+                                withdrawal.getWithdrawalMethod(),
+                                effectiveThirdPartyTransfer(withdrawal),
+                                withdrawal.isRecipientCardTbank(),
+                                withdrawal.isRequireSenderFirstParty(),
+                                prospectiveAmounts
+                        );
+                        canPublish = false;
+                    } else {
+                        descriptionFull = true;
+                        canPublish = false;
+                    }
                 }
             }
 
@@ -411,32 +486,48 @@ public class AdvertisementManager {
             );
         }
 
-        List<BigDecimal> amounts = published.stream()
-                .map(WithdrawalRequestEntity::getAmountRub)
-                .distinct()
-                .sorted()
-                .toList();
-
-        BigDecimal minRub = amounts.stream()
-                .min(Comparator.naturalOrder())
-                .orElse(bybitProperties.getDefaultMinRub())
-                .min(bybitProperties.getDefaultMinRub());
-        BigDecimal maxRub = amounts.stream()
-                .max(Comparator.naturalOrder())
-                .orElse(bybitProperties.getDefaultMaxRub())
-                .max(bybitProperties.getDefaultMaxRub());
-        BigDecimal quantityUsdt = maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
         WithdrawalRequestEntity first = published.getFirst();
         PayerBankType payerBankType = PayerBankType.effective(first.getPayerBankType());
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(first.getWithdrawalMethod());
-        String description = descriptionBuilder.build(
-                payerBankType,
-                withdrawalMethod,
-                effectiveThirdPartyTransfer(first),
-                first.isRecipientCardTbank(),
-                first.isRequireSenderFirstParty(),
-                amounts
-        );
+        BigDecimal amountMinRub;
+        BigDecimal amountMaxRub;
+        String description;
+        if (isRange(first)) {
+            amountMinRub = amountMinRub(first);
+            amountMaxRub = amountMaxRub(first);
+            description = descriptionBuilder.buildRange(
+                    payerBankType,
+                    withdrawalMethod,
+                    effectiveThirdPartyTransfer(first),
+                    first.isRecipientCardTbank(),
+                    first.isRequireSenderFirstParty(),
+                    amountMinRub,
+                    amountMaxRub
+            );
+        } else {
+            List<BigDecimal> amounts = published.stream()
+                    .map(this::fixedAmountRub)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            amountMinRub = amounts.stream()
+                    .min(Comparator.naturalOrder())
+                    .orElse(bybitProperties.getDefaultMinRub());
+            amountMaxRub = amounts.stream()
+                    .max(Comparator.naturalOrder())
+                    .orElse(bybitProperties.getDefaultMaxRub());
+            description = descriptionBuilder.build(
+                    payerBankType,
+                    withdrawalMethod,
+                    effectiveThirdPartyTransfer(first),
+                    first.isRecipientCardTbank(),
+                    first.isRequireSenderFirstParty(),
+                    amounts
+            );
+        }
+        BigDecimal minRub = amountMinRub.min(bybitProperties.getDefaultMinRub());
+        BigDecimal maxRub = amountMaxRub.max(bybitProperties.getDefaultMaxRub());
+        BigDecimal quantityUsdt = maxRub.divide(rate, businessProperties.getUsdtQuantityScale(), RoundingMode.CEILING);
 
         return new AdvertisementSnapshot(
                 true,
@@ -587,6 +678,12 @@ public class AdvertisementManager {
     }
 
     private String queueGroupKey(WithdrawalRequestEntity withdrawal) {
+        if (isRange(withdrawal)) {
+            String key = withdrawal.getPublicId() == null
+                    ? String.valueOf(withdrawal.getId())
+                    : withdrawal.getPublicId();
+            return WithdrawalPaymentRules.rangeQueueGroupKey(key);
+        }
         return WithdrawalPaymentRules.queueGroupKey(
                 withdrawal.getPayerBankType(),
                 withdrawal.getWithdrawalMethod(),
@@ -598,5 +695,27 @@ public class AdvertisementManager {
 
     private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity withdrawal) {
         return withdrawal.getWithdrawalMethod() == null || withdrawal.isThirdPartyTransfer();
+    }
+
+    private boolean isRange(WithdrawalRequestEntity withdrawal) {
+        return WithdrawalAmountMode.effective(withdrawal.getAmountMode()) == WithdrawalAmountMode.RANGE;
+    }
+
+    private BigDecimal fixedAmountRub(WithdrawalRequestEntity withdrawal) {
+        return withdrawal.getAmountRub() == null
+                ? amountMinRub(withdrawal)
+                : withdrawal.getAmountRub();
+    }
+
+    private BigDecimal amountMinRub(WithdrawalRequestEntity withdrawal) {
+        return withdrawal.getAmountMinRub() == null
+                ? withdrawal.getAmountRub()
+                : withdrawal.getAmountMinRub();
+    }
+
+    private BigDecimal amountMaxRub(WithdrawalRequestEntity withdrawal) {
+        return withdrawal.getAmountMaxRub() == null
+                ? withdrawal.getAmountRub()
+                : withdrawal.getAmountMaxRub();
     }
 }

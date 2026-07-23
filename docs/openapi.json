@@ -1087,7 +1087,17 @@
       "CreateWithdrawalRequest" : {
         "type" : "object",
         "properties" : {
+          "amountMode" : {
+            "type" : "string",
+            "enum" : [ "FIXED", "RANGE" ]
+          },
           "amountRub" : {
+            "type" : "number"
+          },
+          "amountMinRub" : {
+            "type" : "number"
+          },
+          "amountMaxRub" : {
             "type" : "number"
           },
           "recipientPhone" : {
@@ -1123,7 +1133,7 @@
             "enum" : [ "SBP", "CARD_NUMBER", "ACCOUNT_NUMBER" ]
           }
         },
-        "required" : [ "amountRub", "payerBankType", "recipientCardTbank", "requireSenderFirstParty", "thirdPartyTransfer", "withdrawalMethod" ]
+        "required" : [ "payerBankType", "recipientCardTbank", "requireSenderFirstParty", "thirdPartyTransfer", "withdrawalMethod" ]
       },
       "WithdrawalResponse" : {
         "type" : "object",
@@ -1135,7 +1145,16 @@
           "publicId" : {
             "type" : "string"
           },
+          "amountMode" : {
+            "type" : "string"
+          },
           "amountRub" : {
+            "type" : "number"
+          },
+          "amountMinRub" : {
+            "type" : "number"
+          },
+          "amountMaxRub" : {
             "type" : "number"
           },
           "recipientPhone" : {
@@ -1288,6 +1307,12 @@
             "type" : "number"
           },
           "maxRub" : {
+            "type" : "number"
+          },
+          "amountMinRub" : {
+            "type" : "number"
+          },
+          "amountMaxRub" : {
             "type" : "number"
           },
           "quantityUsdt" : {
@@ -1745,10 +1770,10 @@
       "CsrfToken" : {
         "type" : "object",
         "properties" : {
-          "parameterName" : {
+          "token" : {
             "type" : "string"
           },
-          "token" : {
+          "parameterName" : {
             "type" : "string"
           },
           "headerName" : {

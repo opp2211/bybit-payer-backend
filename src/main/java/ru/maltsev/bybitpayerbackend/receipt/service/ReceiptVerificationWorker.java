@@ -384,13 +384,13 @@ public class ReceiptVerificationWorker {
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
         return switch (withdrawalMethod) {
             case SBP -> new TinkoffReceiptVerificationRequest(
-                    withdrawal.getAmountRub(),
+                    expectedReceiptAmount(withdrawal),
                     withdrawal.getRecipientName(),
                     withdrawal.getRecipientPhone(),
                     withdrawal.getRecipientBank().getTitle()
             );
             case CARD_NUMBER -> new TinkoffReceiptVerificationRequest(
-                    withdrawal.getAmountRub(),
+                    expectedReceiptAmount(withdrawal),
                     withdrawal.getRecipientName(),
                     null,
                     null,
@@ -400,5 +400,11 @@ public class ReceiptVerificationWorker {
             );
             case ACCOUNT_NUMBER -> throw new IllegalStateException("Account-number withdrawal is not auto-released");
         };
+    }
+
+    private java.math.BigDecimal expectedReceiptAmount(WithdrawalRequestEntity withdrawal) {
+        return withdrawal.getBybitOrderAmountRub() == null
+                ? withdrawal.getAmountRub()
+                : withdrawal.getBybitOrderAmountRub();
     }
 }

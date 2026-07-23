@@ -1,5 +1,6 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
@@ -22,6 +23,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
@@ -214,15 +216,12 @@ public class BybitOrderWatcher {
         }
 
         List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
-                .findByWorkspaceAndStatusAndAmountRubOrderByCreatedAtAscIdAsc(
-                        workspace,
-                        WithdrawalStatus.IN_WORK,
-                        order.amountRub()
-                );
-        if (matchingWithdrawals.size() != 1) {
-            String reason = matchingWithdrawals.isEmpty()
-                    ? "No IN_WORK withdrawal with this amount"
-                    : "More than one IN_WORK withdrawal matched this amount";
+                .findByWorkspaceAndStatusOrderByCreatedAtAscIdAsc(workspace, WithdrawalStatus.IN_WORK)
+                .stream()
+                .filter(withdrawal -> orderAmountMatches(withdrawal, order.amountRub()))
+                .toList();
+        if (matchingWithdrawals.isEmpty()) {
+            String reason = "No IN_WORK withdrawal matching this amount";
             foreignOrderService.upsert(workspace, order, reason);
             return false;
         }
@@ -263,11 +262,12 @@ public class BybitOrderWatcher {
         }
 
         List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
-                .findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK, order.amountRub());
-        if (matchingWithdrawals.size() != 1) {
-            String reason = matchingWithdrawals.isEmpty()
-                    ? "No IN_WORK withdrawal with this amount"
-                    : "More than one IN_WORK withdrawal matched this amount";
+                .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK)
+                .stream()
+                .filter(withdrawal -> orderAmountMatches(withdrawal, order.amountRub()))
+                .toList();
+        if (matchingWithdrawals.isEmpty()) {
+            String reason = "No IN_WORK withdrawal matching this amount";
             foreignOrderService.upsert(order, reason);
             return false;
         }
@@ -419,5 +419,21 @@ public class BybitOrderWatcher {
         withdrawal.setBybitOrderAmountRub(order.amountRub());
         withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
         withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
+    }
+
+    private boolean orderAmountMatches(WithdrawalRequestEntity withdrawal, BigDecimal orderAmountRub) {
+        if (orderAmountRub == null) {
+            return false;
+        }
+        if (WithdrawalAmountMode.effective(withdrawal.getAmountMode()) == WithdrawalAmountMode.FIXED) {
+            return withdrawal.getAmountRub() != null
+                    && orderAmountRub.compareTo(withdrawal.getAmountRub()) == 0;
+        }
+        BigDecimal amountMinRub = withdrawal.getAmountMinRub();
+        BigDecimal amountMaxRub = withdrawal.getAmountMaxRub();
+        return amountMinRub != null
+                && amountMaxRub != null
+                && orderAmountRub.compareTo(amountMinRub) >= 0
+                && orderAmountRub.compareTo(amountMaxRub) <= 0;
     }
 }

@@ -58,6 +58,10 @@ public final class WithdrawalPaymentRules {
         return String.join(":", parts);
     }
 
+    public static String rangeQueueGroupKey(String publicId) {
+        return "RANGE:" + publicId;
+    }
+
     public static String advertisementTail(
             PayerBankType payerBankType,
             WithdrawalMethod withdrawalMethod,

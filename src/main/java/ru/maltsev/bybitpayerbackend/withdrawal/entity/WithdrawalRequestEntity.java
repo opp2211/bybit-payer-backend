@@ -19,6 +19,7 @@ import lombok.Setter;
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
@@ -45,8 +46,18 @@ public class WithdrawalRequestEntity {
     @JoinColumn(name = "created_by_user_id")
     private UserEntity createdBy;
 
-    @Column(name = "amount_rub", nullable = false, precision = 19, scale = 0)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "amount_mode", nullable = false, length = 32)
+    private WithdrawalAmountMode amountMode = WithdrawalAmountMode.FIXED;
+
+    @Column(name = "amount_rub", precision = 19, scale = 2)
     private BigDecimal amountRub;
+
+    @Column(name = "amount_min_rub", nullable = false, precision = 19, scale = 2)
+    private BigDecimal amountMinRub;
+
+    @Column(name = "amount_max_rub", nullable = false, precision = 19, scale = 2)
+    private BigDecimal amountMaxRub;
 
     @Column(name = "recipient_phone", length = 32)
     private String recipientPhone;
