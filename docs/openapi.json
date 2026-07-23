@@ -249,6 +249,82 @@
         }
       }
     },
+    "/api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}/chat-agent/suggestion/send" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "sendChatAgentSuggestion",
+        "parameters" : [ {
+          "name" : "workspacePublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "withdrawalPublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiChatAgentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}/chat-agent/mode" : {
+      "post" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "setChatAgentMode",
+        "parameters" : [ {
+          "name" : "workspacePublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "withdrawalPublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AiChatAgentModeRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/AiChatAgentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{workspacePublicId}/withdrawals/preview" : {
       "post" : {
         "tags" : [ "withdrawal-controller" ],
@@ -1297,6 +1373,60 @@
         },
         "required" : [ "message" ]
       },
+      "AiChatAgentResponse" : {
+        "type" : "object",
+        "properties" : {
+          "exists" : {
+            "type" : "boolean"
+          },
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "statusTitle" : {
+            "type" : "string"
+          },
+          "currentStep" : {
+            "type" : "string"
+          },
+          "currentStepTitle" : {
+            "type" : "string"
+          },
+          "autoReceiptEnabled" : {
+            "type" : "boolean"
+          },
+          "operatorRequired" : {
+            "type" : "boolean"
+          },
+          "suggestedMessages" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "suggestedReason" : {
+            "type" : "string"
+          },
+          "suggestedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastDecisionSummary" : {
+            "type" : "string"
+          }
+        }
+      },
+      "AiChatAgentModeRequest" : {
+        "type" : "object",
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "enabled" ]
+      },
       "WithdrawalAdvertisementPreviewResponse" : {
         "type" : "object",
         "properties" : {
@@ -1696,6 +1826,9 @@
             "items" : {
               "$ref" : "#/components/schemas/EmailReceiptCheckResponse"
             }
+          },
+          "chatAgent" : {
+            "$ref" : "#/components/schemas/AiChatAgentResponse"
           }
         }
       },
@@ -1770,13 +1903,13 @@
       "CsrfToken" : {
         "type" : "object",
         "properties" : {
-          "token" : {
+          "headerName" : {
             "type" : "string"
           },
           "parameterName" : {
             "type" : "string"
           },
-          "headerName" : {
+          "token" : {
             "type" : "string"
           }
         }

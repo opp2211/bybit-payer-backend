@@ -157,6 +157,27 @@ start mail receipt verification and send the receipt email to chat. `SBERBANK` a
 `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
 skip mailbox polling, and must be released manually.
 
+If the AI chat agent is enabled, binding a Bybit order starts an AI session instead of
+immediately sending fixed requisite messages. The agent can read the withdrawal, order,
+chat, and receipt-check state and can only send chat messages or mark the withdrawal as
+requiring operator attention. It never calls release, cancel, or ad-management actions.
+
+Before requisites are sent, the agent confirms the withdrawal conditions with the counterparty:
+
+- sender first-party confirmation when `requireSenderFirstParty` is enabled;
+- payer bank for every withdrawal;
+- official T-Bank receipt to the workspace `receiptEmail` for `TBANK_AUTO`;
+- optional official T-Bank receipt for `ANY_BANK` counterparties who say they pay from T-Bank;
+- third-party transfer consent when the withdrawal receives payment to a third party;
+- final warning with the exact amount and requisite-safety conditions.
+
+When a mandatory condition is rejected, the agent does not send requisites and asks the
+counterparty to cancel the order, while marking the withdrawal as requiring operator attention.
+If the agent cannot classify the conversation, OpenAI is unavailable, a receipt is invalid, or
+the counterparty repeatedly asks to release without a valid receipt, it hands off to the operator.
+When the UI disables AI mode, the agent switches to dry-run behavior: it keeps preparing the next
+chat message as a suggestion, while the operator remains responsible for sending it.
+
 For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
 from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.
 If a receipt contains both `Итого` and `Сумма`, `Сумма` is authoritative; `Итого`

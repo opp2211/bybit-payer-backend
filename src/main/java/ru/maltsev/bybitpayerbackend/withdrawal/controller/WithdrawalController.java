@@ -19,9 +19,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
+import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentModeRequest;
+import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentResponse;
+import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bybit.dto.SendChatMessageRequest;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
@@ -35,6 +38,7 @@ public class WithdrawalController {
 
     private final WithdrawalService withdrawalService;
     private final BybitChatService chatService;
+    private final AiChatAgentService aiChatAgentService;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -102,7 +106,25 @@ public class WithdrawalController {
             @PathVariable String withdrawalPublicId,
             @Valid @RequestBody SendChatMessageRequest request
     ) {
+        aiChatAgentService.ensureManualChatAllowed(workspacePublicId, withdrawalPublicId);
         chatService.sendMessage(workspacePublicId, withdrawalPublicId, request.message());
+    }
+
+    @PostMapping("/{withdrawalPublicId}/chat-agent/mode")
+    public AiChatAgentResponse setChatAgentMode(
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId,
+            @Valid @RequestBody AiChatAgentModeRequest request
+    ) {
+        return aiChatAgentService.setMode(workspacePublicId, withdrawalPublicId, request.enabled());
+    }
+
+    @PostMapping("/{withdrawalPublicId}/chat-agent/suggestion/send")
+    public AiChatAgentResponse sendChatAgentSuggestion(
+            @PathVariable String workspacePublicId,
+            @PathVariable String withdrawalPublicId
+    ) {
+        return aiChatAgentService.sendSuggestion(workspacePublicId, withdrawalPublicId);
     }
 
     @GetMapping("/{withdrawalPublicId}/receipts/{receiptId}/pdf")
