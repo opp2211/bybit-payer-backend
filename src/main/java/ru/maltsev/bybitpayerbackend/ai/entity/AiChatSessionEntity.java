@@ -41,6 +41,9 @@ public class AiChatSessionEntity {
     @JoinColumn(name = "withdrawal_request_id", nullable = false)
     private WithdrawalRequestEntity withdrawalRequest;
 
+    @Column(name = "bybit_order_id", length = 128)
+    private String bybitOrderId;
+
     @Column(name = "enabled", nullable = false)
     private boolean enabled = true;
 

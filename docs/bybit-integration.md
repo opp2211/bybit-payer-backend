@@ -161,6 +161,9 @@ If the AI chat agent is enabled, binding a Bybit order starts an AI session inst
 immediately sending fixed requisite messages. The agent can read the withdrawal, order,
 chat, and receipt-check state and can only send chat messages or mark the withdrawal as
 requiring operator attention. It never calls release, cancel, or ad-management actions.
+AI sessions store the bound `bybit_order_id`; if a withdrawal returns to publication after
+order cancellation and later receives another Bybit order, the old session state is reset
+and the confirmation flow starts again for the new order.
 
 Before requisites are sent, the agent confirms the withdrawal conditions with the counterparty:
 

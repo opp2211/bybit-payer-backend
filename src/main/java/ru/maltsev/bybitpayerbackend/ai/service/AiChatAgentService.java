@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -120,19 +121,17 @@ public class AiChatAgentService {
             ));
             return;
         }
-        if (sessionRepository.findByWithdrawalRequest(withdrawal).isPresent()) {
+        Optional<AiChatSessionEntity> existingSession = sessionRepository.findByWithdrawalRequest(withdrawal);
+        if (existingSession
+                .filter(session -> StringUtils.hasText(session.getBybitOrderId()))
+                .filter(session -> Objects.equals(session.getBybitOrderId(), withdrawal.getBybitOrderId()))
+                .isPresent()) {
             return;
         }
 
-        AiChatSessionEntity session = new AiChatSessionEntity();
-        session.setWorkspace(workspace);
-        session.setWithdrawalRequest(withdrawal);
-        session.setEnabled(!properties.isDryRunByDefault());
-        session.setStatus(AiChatSessionStatus.WAITING_COUNTERPARTY);
-        session.setRequiredReceiptEmail(requiredReceiptEmail(withdrawal));
-        session.setCurrentStep(firstStep(withdrawal));
-        session.setCreatedAt(Instant.now(clock));
-        session.setUpdatedAt(session.getCreatedAt());
+        boolean restarted = existingSession.isPresent();
+        AiChatSessionEntity session = existingSession.orElseGet(AiChatSessionEntity::new);
+        resetForOrder(session, workspace, withdrawal);
 
         if (session.isRequiredReceiptEmail() && !StringUtils.hasText(workspace.getReceiptEmail())) {
             requireOperator(session, "Для заявки нужен чек на почту, но email workspace не заполнен", false);
@@ -146,8 +145,46 @@ public class AiChatAgentService {
         }
 
         sessionRepository.save(session);
-        eventService.add(withdrawal, WithdrawalEventType.AI_CHAT_STARTED, "AI chat agent started");
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.AI_CHAT_STARTED,
+                restarted ? "AI chat agent restarted for new Bybit order" : "AI chat agent started"
+        );
         emitMessages(session, startMessages(session), "Первое сообщение агента");
+    }
+
+    private void resetForOrder(
+            AiChatSessionEntity session,
+            WorkspaceEntity workspace,
+            WithdrawalRequestEntity withdrawal
+    ) {
+        Instant now = Instant.now(clock);
+        session.setWorkspace(workspace);
+        session.setWithdrawalRequest(withdrawal);
+        session.setBybitOrderId(withdrawal.getBybitOrderId());
+        session.setEnabled(!properties.isDryRunByDefault());
+        session.setStatus(AiChatSessionStatus.WAITING_COUNTERPARTY);
+        session.setCurrentStep(firstStep(withdrawal));
+        session.setAutoReceiptEnabled(false);
+        session.setRequiredReceiptEmail(requiredReceiptEmail(withdrawal));
+        session.setOptionalReceiptEmail(false);
+        session.setSenderFirstPartyConfirmed(null);
+        session.setPayerBankConfirmed(null);
+        session.setPayerBankName(null);
+        session.setThirdPartyTransferConfirmed(null);
+        session.setFinalWarningConfirmed(null);
+        session.setRequisitesSentAt(null);
+        session.setOperatorRequiredAt(null);
+        session.setLastProcessedMessageId(null);
+        session.setLastProcessedMessageCreatedAt(null);
+        session.setLastReceiptCheckIdHandled(null);
+        session.setUnclearRepliesCount(0);
+        session.setCancellationRepliesCount(0);
+        session.setPaidWithoutReceiptRepliesCount(0);
+        session.setLastDecisionSummary(null);
+        clearSuggestion(session);
+        session.setCreatedAt(now);
+        session.setUpdatedAt(now);
     }
 
     @Scheduled(fixedDelayString = "${ai.chat-agent.poll-interval:5s}")
@@ -513,14 +550,16 @@ public class AiChatAgentService {
 
     private AiChatDecision decide(AiChatSessionEntity session, BybitChatMessage message) {
         if (!openAiClient.configured()) {
-            requireOperator(session, "OpenAI API key is not configured", false);
-            throw new OpenAiUnavailableException("OpenAI API key is not configured");
+            String reason = "OpenAI API key is not configured";
+            requireOperator(session, reason, false);
+            return AiChatDecision.unclear(reason);
         }
         try {
             return openAiClient.decide(session, decisionRequest(session, message));
         } catch (OpenAiUnavailableException exception) {
-            requireOperator(session, "OpenAI unavailable: " + exception.getMessage(), false);
-            return AiChatDecision.unclear("OpenAI unavailable");
+            String reason = "OpenAI unavailable: " + exception.getMessage();
+            requireOperator(session, reason, false);
+            return AiChatDecision.unclear(reason);
         }
     }
 
