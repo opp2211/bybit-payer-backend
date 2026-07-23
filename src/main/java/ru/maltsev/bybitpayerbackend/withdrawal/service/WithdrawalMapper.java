@@ -10,6 +10,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalEventResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalEventEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
@@ -24,7 +25,10 @@ public class WithdrawalMapper {
         return new WithdrawalResponse(
                 entity.getId(),
                 entity.getPublicId(),
+                amountMode(entity).name(),
                 entity.getAmountRub(),
+                amountMinRub(entity),
+                amountMaxRub(entity),
                 entity.getRecipientPhone(),
                 entity.getRecipientBank() == null ? null : entity.getRecipientBank().getCode(),
                 entity.getRecipientBank() == null ? null : entity.getRecipientBank().getTitle(),
@@ -65,6 +69,24 @@ public class WithdrawalMapper {
                 entity.getStatus().canBeCancelled(),
                 entity.getStatus().canBeReleased() && entity.getBybitOrderId() != null
         );
+    }
+
+    private WithdrawalAmountMode amountMode(WithdrawalRequestEntity entity) {
+        return WithdrawalAmountMode.effective(entity.getAmountMode());
+    }
+
+    private java.math.BigDecimal amountMinRub(WithdrawalRequestEntity entity) {
+        if (entity.getAmountMinRub() != null) {
+            return entity.getAmountMinRub();
+        }
+        return entity.getAmountRub();
+    }
+
+    private java.math.BigDecimal amountMaxRub(WithdrawalRequestEntity entity) {
+        if (entity.getAmountMaxRub() != null) {
+            return entity.getAmountMaxRub();
+        }
+        return entity.getAmountRub();
     }
 
     private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity entity) {

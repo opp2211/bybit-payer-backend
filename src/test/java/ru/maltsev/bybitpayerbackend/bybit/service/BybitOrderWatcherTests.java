@@ -23,6 +23,7 @@ import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
@@ -50,10 +51,8 @@ class BybitOrderWatcherTests {
         when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10")));
         when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
         when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
-        when(withdrawalRepository.findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(
-                WithdrawalStatus.IN_WORK,
-                new BigDecimal("10000")
-        )).thenReturn(List.of(withdrawal));
+        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+                .thenReturn(List.of(withdrawal));
         when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -104,12 +103,51 @@ class BybitOrderWatcherTests {
 
         watcher.pollActiveOrders();
 
-        verify(withdrawalRepository, never()).findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(
-                WithdrawalStatus.IN_WORK,
-                new BigDecimal("10000")
-        );
+        verify(withdrawalRepository, never()).findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK);
         verify(foreignOrderService).removeMissingOrders(Set.of("order-1"));
         verify(advertisementManager, never()).rebuildPublication();
+    }
+
+    @Test
+    void bindsRangeWithdrawalWhenOrderAmountIsInsideInclusiveRange() {
+        BybitGateway gateway = mock(BybitGateway.class);
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        BybitOrderBindingRepository bindingRepository = mock(BybitOrderBindingRepository.class);
+        ForeignBybitOrderService foreignOrderService = mock(ForeignBybitOrderService.class);
+        AdvertisementManager advertisementManager = mock(AdvertisementManager.class);
+        BybitChatService chatService = mock(BybitChatService.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(1L);
+        withdrawal.setStatus(WithdrawalStatus.IN_WORK);
+        withdrawal.setAmountMode(WithdrawalAmountMode.RANGE);
+        withdrawal.setAmountMinRub(new BigDecimal("20000"));
+        withdrawal.setAmountMaxRub(new BigDecimal("25000"));
+
+        when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10", "20000.50")));
+        when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
+        when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
+        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+                .thenReturn(List.of(withdrawal));
+        when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        BybitOrderWatcher watcher = new BybitOrderWatcher(
+                gateway,
+                withdrawalRepository,
+                bindingRepository,
+                foreignOrderService,
+                advertisementManager,
+                chatService,
+                eventService,
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+
+        watcher.pollActiveOrders();
+
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_IN_PROGRESS);
+        assertThat(withdrawal.getBybitOrderAmountRub()).isEqualByComparingTo("20000.50");
+        verify(advertisementManager).rebuildPublication();
     }
 
     @Test
@@ -192,9 +230,13 @@ class BybitOrderWatcherTests {
     }
 
     private static BybitP2pOrder order(String status) {
+        return order(status, "10000");
+    }
+
+    private static BybitP2pOrder order(String status, String amountRub) {
         return new BybitP2pOrder(
                 "order-1",
-                new BigDecimal("10000"),
+                new BigDecimal(amountRub),
                 status,
                 new BigDecimal("108.25"),
                 new BigDecimal("0.30")

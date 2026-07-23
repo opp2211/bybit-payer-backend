@@ -6,7 +6,10 @@ import java.time.Instant;
 public record WithdrawalResponse(
         Long id,
         String publicId,
+        String amountMode,
         BigDecimal amountRub,
+        BigDecimal amountMinRub,
+        BigDecimal amountMaxRub,
         String recipientPhone,
         String recipientBank,
         String recipientBankTitle,

@@ -37,6 +37,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPrevie
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
@@ -149,7 +150,8 @@ public class WithdrawalService {
     public WithdrawalResponse create(String workspacePublicId, CreateWithdrawalRequest request) {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
-        BigDecimal amountRub = normalizer.normalizeAmount(request.amountRub());
+        WithdrawalAmountMode amountMode = WithdrawalAmountMode.effective(request.amountMode());
+        WithdrawalAmountSelection amountSelection = normalizeAmountSelection(request, amountMode);
         PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(request.withdrawalMethod());
         WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
@@ -161,7 +163,10 @@ public class WithdrawalService {
         withdrawal.setPublicId(publicIdGenerator.generate(withdrawalRepository::existsByPublicId));
         withdrawal.setWorkspace(workspace);
         withdrawal.setCreatedBy(currentUser);
-        withdrawal.setAmountRub(amountRub);
+        withdrawal.setAmountMode(amountMode);
+        withdrawal.setAmountRub(amountSelection.amountRub());
+        withdrawal.setAmountMinRub(amountSelection.amountMinRub());
+        withdrawal.setAmountMaxRub(amountSelection.amountMaxRub());
         withdrawal.setRecipientPhone(requisites.recipientPhone());
         withdrawal.setRecipientBank(requisites.recipientBank());
         withdrawal.setRecipientName(requisites.recipientName());
@@ -175,13 +180,7 @@ public class WithdrawalService {
         withdrawal.setStatus(WithdrawalStatus.NEW);
         withdrawal.setAttentionRequired(false);
         withdrawal.setCompletionSeen(true);
-        withdrawal.setQueueGroupKey(WithdrawalPaymentRules.queueGroupKey(
-                payerBankType,
-                withdrawalMethod,
-                thirdPartyTransfer,
-                requisites.recipientCardTbank(),
-                requireSenderFirstParty
-        ));
+        withdrawal.setQueueGroupKey(queueGroupKey(withdrawal));
         withdrawal.setCreatedAt(Instant.now(clock));
         withdrawal = withdrawalRepository.save(withdrawal);
         eventService.add(withdrawal, WithdrawalEventType.WITHDRAWAL_CREATED, "Withdrawal request created", currentUser);
@@ -190,9 +189,11 @@ public class WithdrawalService {
         advertisementManager.rebuildPublication(workspace);
         WithdrawalRequestEntity refreshed = getRequiredEntity(workspace, withdrawal.getPublicId());
         log.info(
-                "Withdrawal created: id={}, amountRub={}, bank={}, status={}",
+                "Withdrawal created: id={}, amountMode={}, amountMinRub={}, amountMaxRub={}, bank={}, status={}",
                 refreshed.getId(),
-                refreshed.getAmountRub(),
+                refreshed.getAmountMode(),
+                refreshed.getAmountMinRub(),
+                refreshed.getAmountMaxRub(),
                 refreshed.getRecipientBank() == null ? null : refreshed.getRecipientBank().getCode(),
                 refreshed.getStatus()
         );
@@ -206,7 +207,8 @@ public class WithdrawalService {
     ) {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
-        BigDecimal amountRub = normalizer.normalizeAmount(request.amountRub());
+        WithdrawalAmountMode amountMode = WithdrawalAmountMode.effective(request.amountMode());
+        WithdrawalAmountSelection amountSelection = normalizeAmountSelection(request, amountMode);
         PayerBankType payerBankType = PayerBankType.effective(request.payerBankType());
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(request.withdrawalMethod());
         WithdrawalPaymentRules.validateMethod(payerBankType, withdrawalMethod);
@@ -216,7 +218,10 @@ public class WithdrawalService {
                 && Boolean.TRUE.equals(request.recipientCardTbank());
         BybitManagedAdStateEntity currentState = advertisementManager.getCurrentState(workspace);
         AdvertisementPreview preview = advertisementManager.buildSingleWithdrawalPreview(
-                amountRub,
+                amountMode,
+                amountSelection.amountRub(),
+                amountSelection.amountMinRub(),
+                amountSelection.amountMaxRub(),
                 payerBankType,
                 withdrawalMethod,
                 thirdPartyTransfer,
@@ -229,6 +234,8 @@ public class WithdrawalService {
                 preview.rate(),
                 preview.minRub(),
                 preview.maxRub(),
+                preview.amountMinRub(),
+                preview.amountMaxRub(),
                 preview.quantityUsdt(),
                 preview.description()
         );
@@ -289,7 +296,7 @@ public class WithdrawalService {
             List<BybitP2pOrder> matchingOrders = bybitCredentialsContext.callWith(
                     workspaceSecretService.bybitCredentials(workspace),
                     () -> bybitGateway.fetchActiveOrders().stream()
-                            .filter(order -> order.amountRub().compareTo(withdrawal.getAmountRub()) == 0)
+                            .filter(order -> orderAmountMatches(withdrawal, order.amountRub()))
                             .toList()
             );
             if (!matchingOrders.isEmpty()) {
@@ -327,6 +334,59 @@ public class WithdrawalService {
         WithdrawalRequestEntity saved = withdrawalRepository.save(withdrawal);
         log.debug("Withdrawal completion marked as seen: id={}", saved.getId());
         return mapper.toResponse(saved);
+    }
+
+    private WithdrawalAmountSelection normalizeAmountSelection(
+            CreateWithdrawalRequest request,
+            WithdrawalAmountMode amountMode
+    ) {
+        return switch (amountMode) {
+            case FIXED -> {
+                BigDecimal amountRub = normalizer.normalizeAmount(request.amountRub(), "amountRub");
+                yield new WithdrawalAmountSelection(amountRub, amountRub, amountRub);
+            }
+            case RANGE -> {
+                BigDecimal amountMinRub = normalizer.normalizeAmount(request.amountMinRub(), "amountMinRub");
+                BigDecimal amountMaxRub = normalizer.normalizeAmount(request.amountMaxRub(), "amountMaxRub");
+                if (amountMaxRub.compareTo(amountMinRub) <= 0) {
+                    throw BusinessException.badRequest("amountMaxRub must be greater than amountMinRub");
+                }
+                yield new WithdrawalAmountSelection(null, amountMinRub, amountMaxRub);
+            }
+        };
+    }
+
+    private String queueGroupKey(WithdrawalRequestEntity withdrawal) {
+        if (WithdrawalAmountMode.effective(withdrawal.getAmountMode()) == WithdrawalAmountMode.RANGE) {
+            return WithdrawalPaymentRules.rangeQueueGroupKey(withdrawal.getPublicId());
+        }
+        return WithdrawalPaymentRules.queueGroupKey(
+                withdrawal.getPayerBankType(),
+                withdrawal.getWithdrawalMethod(),
+                effectiveThirdPartyTransfer(withdrawal),
+                withdrawal.isRecipientCardTbank(),
+                withdrawal.isRequireSenderFirstParty()
+        );
+    }
+
+    private boolean orderAmountMatches(WithdrawalRequestEntity withdrawal, BigDecimal orderAmountRub) {
+        if (orderAmountRub == null) {
+            return false;
+        }
+        BigDecimal minRub = withdrawal.getAmountMinRub() == null
+                ? withdrawal.getAmountRub()
+                : withdrawal.getAmountMinRub();
+        BigDecimal maxRub = withdrawal.getAmountMaxRub() == null
+                ? withdrawal.getAmountRub()
+                : withdrawal.getAmountMaxRub();
+        return minRub != null
+                && maxRub != null
+                && orderAmountRub.compareTo(minRub) >= 0
+                && orderAmountRub.compareTo(maxRub) <= 0;
+    }
+
+    private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity withdrawal) {
+        return withdrawal.getWithdrawalMethod() == null || withdrawal.isThirdPartyTransfer();
     }
 
     @Transactional
@@ -469,6 +529,13 @@ public class WithdrawalService {
             String recipientCardNumber,
             String recipientAccountNumber,
             boolean recipientCardTbank
+    ) {
+    }
+
+    private record WithdrawalAmountSelection(
+            BigDecimal amountRub,
+            BigDecimal amountMinRub,
+            BigDecimal amountMaxRub
     ) {
     }
 

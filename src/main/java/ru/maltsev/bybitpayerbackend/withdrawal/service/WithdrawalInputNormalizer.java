@@ -11,12 +11,16 @@ import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 public class WithdrawalInputNormalizer {
 
     public BigDecimal normalizeAmount(BigDecimal amountRub) {
+        return normalizeAmount(amountRub, "amountRub");
+    }
+
+    public BigDecimal normalizeAmount(BigDecimal amountRub, String fieldName) {
         if (amountRub == null || amountRub.signum() <= 0) {
-            throw BusinessException.badRequest("amountRub must be a positive integer");
+            throw BusinessException.badRequest(fieldName + " must be a positive integer");
         }
         BigDecimal normalized = amountRub.stripTrailingZeros();
         if (normalized.scale() > 0) {
-            throw BusinessException.badRequest("amountRub must not contain fractional part");
+            throw BusinessException.badRequest(fieldName + " must not contain fractional part");
         }
         return normalized;
     }
