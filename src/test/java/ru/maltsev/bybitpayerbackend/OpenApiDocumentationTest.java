@@ -8,6 +8,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,7 +18,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
 
@@ -50,9 +53,30 @@ class OpenApiDocumentationTest {
     }
 
     private String prettyPrint(String json) throws Exception {
+        JsonNode openApi = objectMapper.readTree(json);
+        sortObjectAt(openApi, "components", "schemas", "CsrfToken", "properties");
         String prettyJson = objectMapper
                 .writerWithDefaultPrettyPrinter()
-                .writeValueAsString(objectMapper.readTree(json));
+                .writeValueAsString(openApi);
         return prettyJson.replace("\r\n", "\n").replace('\r', '\n') + "\n";
+    }
+
+    private void sortObjectAt(JsonNode root, String... path) {
+        JsonNode current = root;
+        for (String pathElement : path) {
+            current = current.get(pathElement);
+            if (current == null) {
+                return;
+            }
+        }
+        if (!(current instanceof ObjectNode objectNode)) {
+            return;
+        }
+
+        var sortedProperties = objectNode.properties().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .toList();
+        objectNode.removeAll();
+        sortedProperties.forEach(entry -> objectNode.set(entry.getKey(), entry.getValue()));
     }
 }
