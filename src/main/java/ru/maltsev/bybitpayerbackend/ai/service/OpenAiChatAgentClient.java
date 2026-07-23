@@ -78,7 +78,7 @@ public class OpenAiChatAgentClient {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             call.setResponseJson(response.body());
             if (response.statusCode() >= 400) {
-                throw new OpenAiUnavailableException("OpenAI HTTP " + response.statusCode());
+                throw new OpenAiUnavailableException(openAiHttpError(response.statusCode(), response.body()));
             }
             AiChatDecision decision = parseDecision(response.body());
             modelCallRepository.save(call);
@@ -198,6 +198,38 @@ public class OpenAiChatAgentClient {
             }
         }
         return result.toString();
+    }
+
+    private String openAiHttpError(int statusCode, String responseBody) {
+        String defaultMessage = "OpenAI HTTP " + statusCode;
+        if (!StringUtils.hasText(responseBody)) {
+            return defaultMessage;
+        }
+        try {
+            JsonNode error = objectMapper.readTree(responseBody).path("error");
+            String message = error.path("message").asText("");
+            String type = error.path("type").asText("");
+            String code = error.path("code").asText("");
+            StringBuilder builder = new StringBuilder(defaultMessage);
+            if (StringUtils.hasText(code)) {
+                builder.append(" [").append(code).append("]");
+            } else if (StringUtils.hasText(type)) {
+                builder.append(" [").append(type).append("]");
+            }
+            if (StringUtils.hasText(message)) {
+                builder.append(": ").append(limit(message, 500));
+            }
+            return builder.toString();
+        } catch (IOException exception) {
+            return defaultMessage + ": " + limit(responseBody, 500);
+        }
+    }
+
+    private String limit(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private <T extends Enum<T>> T enumValue(Class<T> enumType, String rawValue, T fallback) {
