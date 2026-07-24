@@ -138,7 +138,7 @@ class AiChatAgentServiceTests {
         when(chatService.getMessages(workspace, withdrawal)).thenReturn(initialChat);
         when(openAiClient.decide(any(), any())).thenReturn(decision(
                 AiChatAction.SEND_MESSAGES,
-                List.of("Подскажите, пожалуйста, с какого банка будете оплачивать?"),
+                List.of("Привет! Подскажите, пожалуйста, с какого банка будете оплачивать?"),
                 "",
                 "Спросил банк отправителя"
         ));
@@ -197,9 +197,9 @@ class AiChatAgentServiceTests {
 
         verify(chatService).sendAgentMessages(workspace, withdrawal, List.of(
                 "Хорошо, тогда реквизиты:",
+                FINAL_WARNING,
                 "+79194600946",
-                "Т-Банк, Иван В.",
-                FINAL_WARNING
+                "Т-Банк, Иван В."
         ));
         assertThat(session.isFinalWarningSent()).isTrue();
         assertThat(session.getRequisitesSentAt()).isEqualTo(NOW);
@@ -312,9 +312,9 @@ class AiChatAgentServiceTests {
         verify(chatService, never()).sendAgentMessages(any(), any(), any());
         assertThat(service.getResponse(withdrawal).suggestedMessages()).containsExactly(
                 "Реквизиты:",
+                FINAL_WARNING,
                 "+79194600946",
-                "Т-Банк, Иван В.",
-                FINAL_WARNING
+                "Т-Банк, Иван В."
         );
 
         UserEntity operator = new UserEntity();
@@ -328,12 +328,94 @@ class AiChatAgentServiceTests {
 
         verify(chatService).sendAgentMessages(workspace, withdrawal, List.of(
                 "Реквизиты:",
+                FINAL_WARNING,
                 "+79194600946",
-                "Т-Банк, Иван В.",
-                FINAL_WARNING
+                "Т-Банк, Иван В."
         ));
         assertThat(session.isFinalWarningSent()).isTrue();
         assertThat(session.getRequisitesSentAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void asksForCancellationWhenCounterpartyCannotPayAfterRequisites() {
+        WorkspaceEntity workspace = workspace();
+        WithdrawalRequestEntity withdrawal = withdrawal(workspace);
+        AiChatSessionEntity session = session(workspace, withdrawal, AiChatAgentMode.ENABLED);
+        session.setPayerBankConfirmed(true);
+        session.setRequisitesSentAt(NOW.minusSeconds(60));
+        session.setFinalWarningSent(true);
+        session.setStatus(AiChatSessionStatus.REQUISITES_SENT);
+        session.setCurrentStep(AiChatStep.REQUISITES_SENT);
+        ChatMessageLogResponse message = message(
+                "counterparty-cancel",
+                ChatMessageSenderType.COUNTERPARTY,
+                "бро, прости, карту блокнули",
+                NOW.minusSeconds(1)
+        );
+        when(sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(any())).thenReturn(List.of(session));
+        when(chatService.getMessages(workspace, withdrawal)).thenReturn(List.of(message));
+        when(openAiClient.decide(eq(session), any())).thenReturn(decision(
+                AiChatAction.REQUEST_CANCELLATION,
+                List.of(
+                        "окей, давайте тогда отменим",
+                        "лучше будет, если вы сами отмените ордер, потому что я сейчас не могу кинуть апил"
+                ),
+                "",
+                "Контрагент сообщил, что оплатить не получится"
+        ));
+
+        service.pollActiveSessions();
+
+        verify(chatService).sendAgentMessages(workspace, withdrawal, List.of(
+                "окей, давайте тогда отменим",
+                "лучше будет, если вы сами отмените ордер, потому что я сейчас не могу кинуть апил"
+        ));
+        assertThat(session.getStatus()).isEqualTo(AiChatSessionStatus.WAITING_CANCEL);
+        assertThat(session.getCurrentStep()).isEqualTo(AiChatStep.WAITING_CANCEL);
+        assertThat(withdrawal.isAttentionRequired()).isTrue();
+    }
+
+    @Test
+    void rejectsPaymentQuestionWhenCounterpartyClearlyRequestsCancellation() {
+        WorkspaceEntity workspace = workspace();
+        WithdrawalRequestEntity withdrawal = withdrawal(workspace);
+        AiChatSessionEntity session = session(workspace, withdrawal, AiChatAgentMode.ENABLED);
+        session.setPayerBankConfirmed(true);
+        session.setRequisitesSentAt(NOW.minusSeconds(60));
+        session.setFinalWarningSent(true);
+        session.setStatus(AiChatSessionStatus.REQUISITES_SENT);
+        session.setCurrentStep(AiChatStep.REQUISITES_SENT);
+        ChatMessageLogResponse message = message(
+                "counterparty-cancel",
+                ChatMessageSenderType.COUNTERPARTY,
+                "давай отменим",
+                NOW.minusSeconds(1)
+        );
+        when(sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(any())).thenReturn(List.of(session));
+        when(chatService.getMessages(workspace, withdrawal)).thenReturn(List.of(message));
+        when(openAiClient.decide(eq(session), any()))
+                .thenReturn(decision(
+                        AiChatAction.SEND_MESSAGES,
+                        List.of("С личного счёта Т-Банка оплатить сможете?"),
+                        "",
+                        "Ошибочно продолжаю уточнять оплату"
+                ))
+                .thenReturn(decision(
+                        AiChatAction.REQUEST_CANCELLATION,
+                        List.of("окей, отменяем", "лучше будет, если вы отмените ордер со своей стороны"),
+                        "",
+                        "Исправился на сценарий отмены"
+                ));
+
+        service.pollActiveSessions();
+
+        verify(openAiClient, times(2)).decide(eq(session), any());
+        verify(chatService).sendAgentMessages(
+                workspace,
+                withdrawal,
+                List.of("окей, отменяем", "лучше будет, если вы отмените ордер со своей стороны")
+        );
+        assertThat(session.getStatus()).isEqualTo(AiChatSessionStatus.WAITING_CANCEL);
     }
 
     @Test

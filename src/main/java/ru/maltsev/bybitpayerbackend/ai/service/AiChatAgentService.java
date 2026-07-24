@@ -65,6 +65,28 @@ import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
 public class AiChatAgentService {
 
     private static final String HELLO_MESSAGE = "Привет";
+    private static final List<String> COUNTERPARTY_CANCEL_PHRASES = List.of(
+            "давай отмен",
+            "давайте отмен",
+            "отменим",
+            "отменить ордер",
+            "отмените ордер",
+            "отменяй",
+            "не могу оплат",
+            "не смогу оплат",
+            "не получается оплат",
+            "не получится оплат",
+            "не выйдет оплат",
+            "оплаты не будет",
+            "карта блок",
+            "карту блок",
+            "банк заблок",
+            "чел слился",
+            "чел слил",
+            "чел мороз",
+            "человек слился",
+            "человек не отвечает"
+    );
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
     };
     private static final List<AiChatSessionStatus> ACTIVE_STATUSES = List.of(
@@ -472,23 +494,32 @@ public class AiChatAgentService {
                     newMessageIds
             );
             ObservedFactsSnapshot factsBeforeDecision = observedFactsSnapshot(session);
-            AiChatDecision decision = normalizeDecision(openAiClient.decide(session, request));
+            AiChatDecision decision = polishDecision(
+                    trigger,
+                    normalizeDecision(openAiClient.decide(session, request))
+            );
             applyObservedFacts(session, decision);
             session.setCurrentStep(nextRequiredStep(session));
 
-            Optional<String> validationError = validateDecision(session, trigger, decision);
+            Optional<String> validationError = validateDecision(session, trigger, decision, allMessages, newMessageIds);
             if (validationError.isPresent()) {
                 String firstError = validationError.get();
                 restoreObservedFacts(session, factsBeforeDecision);
                 session.setCurrentStep(nextRequiredStep(session));
                 notifyOperator(session, "Backend заблокировал действие ИИ: " + firstError);
-                AiChatDecision corrected = normalizeDecision(openAiClient.decide(
-                        session,
-                        request.withValidationError(firstError)
-                ));
+                AiChatDecision corrected = polishDecision(
+                        trigger,
+                        normalizeDecision(openAiClient.decide(session, request.withValidationError(firstError)))
+                );
                 applyObservedFacts(session, corrected);
                 session.setCurrentStep(nextRequiredStep(session));
-                Optional<String> correctedError = validateDecision(session, trigger, corrected);
+                Optional<String> correctedError = validateDecision(
+                        session,
+                        trigger,
+                        corrected,
+                        allMessages,
+                        newMessageIds
+                );
                 if (correctedError.isPresent()) {
                     restoreObservedFacts(session, factsBeforeDecision);
                     session.setCurrentStep(nextRequiredStep(session));
@@ -786,13 +817,61 @@ public class AiChatAgentService {
         );
     }
 
+    private AiChatDecision polishDecision(AiChatTrigger trigger, AiChatDecision decision) {
+        if (trigger != AiChatTrigger.START || decision.messages().isEmpty()) {
+            return decision;
+        }
+
+        List<String> messages = new ArrayList<>(decision.messages());
+        String firstMessage = stripRedundantStartGreeting(messages.getFirst());
+        if (StringUtils.hasText(firstMessage)) {
+            messages.set(0, firstMessage);
+        } else {
+            messages.removeFirst();
+        }
+        if (messages.equals(decision.messages())) {
+            return decision;
+        }
+
+        return new AiChatDecision(
+                decision.action(),
+                List.copyOf(messages),
+                decision.finalWarning(),
+                decision.firstParty(),
+                decision.payerBankType(),
+                decision.payerBankName(),
+                decision.receiptEmail(),
+                decision.thirdPartyTransfer(),
+                decision.paymentClaim(),
+                decision.handoffReason(),
+                decision.summary()
+        );
+    }
+
+    private String stripRedundantStartGreeting(String message) {
+        return nullToEmpty(message)
+                .replaceFirst(
+                        "(?iu)^\\s*(привет|здравствуйте|добрый\\s+(день|вечер)|доброе\\s+утро)[!.,:;\\s-]*",
+                        ""
+                )
+                .trim();
+    }
+
     private Optional<String> validateDecision(
             AiChatSessionEntity session,
             AiChatTrigger trigger,
-            AiChatDecision decision
+            AiChatDecision decision,
+            List<ChatMessageLogResponse> allMessages,
+            Set<String> newMessageIds
     ) {
+        boolean counterpartyRequestedCancellation = counterpartyRequestedCancellation(allMessages, newMessageIds);
         if (decision.action() == null) {
             return Optional.of("не указано действие");
+        }
+        if (counterpartyRequestedCancellation
+                && decision.action() != AiChatAction.REQUEST_CANCELLATION
+                && decision.action() != AiChatAction.HANDOFF) {
+            return Optional.of("контрагент просит отмену или сообщает, что не сможет оплатить");
         }
         if (decision.messages().size() > properties.getMaxMessagesPerDecision()) {
             return Optional.of("слишком много сообщений в одном ответе");
@@ -830,7 +909,9 @@ public class AiChatAgentService {
         }
         if (decision.action() == AiChatAction.REQUEST_CANCELLATION
                 && !hasBlockingRejection(session)
-                && session.getStatus() != AiChatSessionStatus.WAITING_CANCEL) {
+                && session.getStatus() != AiChatSessionStatus.WAITING_CANCEL
+                && !requisitesSent(session)
+                && !counterpartyRequestedCancellation) {
             return Optional.of("нет подтверждённой причины просить отмену ордера");
         }
         if (trigger == AiChatTrigger.INVALID_RECEIPT && decision.action() != AiChatAction.HANDOFF) {
@@ -895,13 +976,38 @@ public class AiChatAgentService {
             return decision.messages();
         }
         List<String> messages = new ArrayList<>(decision.messages());
+        if (StringUtils.hasText(decision.finalWarning())) {
+            messages.add(decision.finalWarning());
+        }
         messages.addAll(chatService.requisiteMessages(session.getWithdrawalRequest()));
         if ((session.isRequiredReceiptEmail() || session.isAutoReceiptEnabled())
                 && StringUtils.hasText(session.getWorkspace().getReceiptEmail())) {
             messages.add(session.getWorkspace().getReceiptEmail());
         }
-        messages.add(decision.finalWarning());
         return messages;
+    }
+
+    private boolean counterpartyRequestedCancellation(
+            List<ChatMessageLogResponse> allMessages,
+            Set<String> newMessageIds
+    ) {
+        if (newMessageIds.isEmpty()) {
+            return false;
+        }
+        return allMessages.stream()
+                .filter(message -> message.senderType() == ChatMessageSenderType.COUNTERPARTY)
+                .filter(message -> newMessageIds.contains(message.id()))
+                .map(this::messageText)
+                .map(this::normalizeDialogText)
+                .anyMatch(text -> COUNTERPARTY_CANCEL_PHRASES.stream().anyMatch(text::contains));
+    }
+
+    private String normalizeDialogText(String value) {
+        return nullToEmpty(value)
+                .toLowerCase(Locale.ROOT)
+                .replace('ё', 'е')
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private boolean sendNow(AiChatSessionEntity session, List<String> messages) {

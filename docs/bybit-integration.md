@@ -186,6 +186,9 @@ requisite delivery, waiting, asking the counterparty to cancel, or handing the c
 operator. It never calls release, cancel, or ad-management actions. Backend validation rejects
 early requisite disclosure and invalid actions; after one corrective model retry, the session is
 handed to an operator.
+Backend also blocks a normal payment-question reply when the latest counterparty messages clearly
+ask to cancel or say that payment will not happen; the model must correct to cancellation or
+operator handoff.
 AI sessions store the bound `bybit_order_id`; if a withdrawal returns to publication after
 order cancellation and later receives another Bybit order, the old session state is reset
 and the confirmation flow starts again for the new order.
@@ -198,14 +201,14 @@ Before requisites are sent, the agent confirms the withdrawal conditions with th
 - optional official T-Bank receipt for `ANY_BANK` counterparties who say they pay from T-Bank;
 - third-party transfer consent when the withdrawal receives payment to a third party.
 
-After all mandatory conditions are confirmed, the backend appends the exact copyable requisite
-values to the model-generated lead-in. Phone, card, account number, and receipt email are sent as
-separate messages; bank and recipient name may be combined. The model also writes a separate
-`finalWarning`, which is sent with the requisites and recorded as `finalWarningSent`. This warning
-does not ask the counterparty to confirm anything and is not a checklist of the agreed conditions.
-It tells the counterparty in advance to select exactly the recipient bank shown in the requisites:
-even a transfer to the correct phone number but the wrong bank may be lost, and the seller will not
-be able to help return it.
+After all mandatory conditions are confirmed, backend sends the model-generated lead-in, then the
+model's `finalWarning`, then the exact copyable requisite values. Phone, card, account number, and
+receipt email are sent as separate messages; bank and recipient name may be combined.
+`finalWarning` is recorded as `finalWarningSent`. This warning does not ask the counterparty to
+confirm anything and is not a checklist of the agreed conditions. It tells the counterparty in
+advance to select exactly the recipient bank shown in the requisites: even a transfer to the
+correct phone number but the wrong bank may be lost, and the seller will not be able to help return
+it.
 
 When a mandatory condition is rejected, the agent does not send requisites and asks the
 counterparty to cancel the order, while marking the withdrawal as requiring operator attention.
