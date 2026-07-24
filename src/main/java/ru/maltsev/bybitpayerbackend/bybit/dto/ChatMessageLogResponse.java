@@ -5,11 +5,11 @@ import java.time.Instant;
 public record ChatMessageLogResponse(
         String id,
         String bybitOrderId,
-        Integer messageIndex,
-        String messageText,
-        String direction,
+        String messageUuid,
+        ChatMessageSenderType senderType,
         String authorName,
-        String contentType,
+        ChatMessageContentResponse content,
+        ChatMessageRawResponse raw,
         String status,
         Instant createdAt,
         String error

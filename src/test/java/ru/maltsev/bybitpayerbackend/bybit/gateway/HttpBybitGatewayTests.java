@@ -160,8 +160,13 @@ class HttpBybitGatewayTests {
 
     @Test
     void readsOrderChatMessages() throws Exception {
+        AtomicInteger chatRequests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v5/p2p/order/message/listpage", exchange -> respond(exchange, """
+        server.createContext("/v5/p2p/order/message/listpage", exchange -> {
+            chatRequests.incrementAndGet();
+            String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (requestBody.contains("\"currentPage\":\"1\"")) {
+                respond(exchange, """
                 {
                   "ret_code": 0,
                   "ret_msg": "SUCCESS",
@@ -174,15 +179,61 @@ class HttpBybitGatewayTests {
                         "createDate": "1741763625000",
                         "contentType": "str",
                         "userId": "290118",
+                        "accountId": "290120",
                         "orderId": "order-123",
                         "msgUuid": "",
                         "nickName": "Покупатель",
-                        "roleType": "user"
+                        "roleType": "user",
+                        "msgCode": 0,
+                        "fileName": ""
+                      },
+                      {
+                        "id": "3000835349",
+                        "message": "System",
+                        "msgType": 0,
+                        "createDate": "1741763626000",
+                        "contentType": "str",
+                        "userId": "seller-user",
+                        "accountId": "seller-account",
+                        "orderId": "order-123",
+                        "msgUuid": "system-uuid",
+                        "nickName": "Seller",
+                        "roleType": "sys",
+                        "msgCode": 1011,
+                        "fileName": ""
                       }
                     ]
                   }
                 }
-                """));
+                """);
+            } else {
+                respond(exchange, """
+                {
+                  "ret_code": 0,
+                  "ret_msg": "SUCCESS",
+                  "result": {
+                    "result": [
+                      {
+                        "id": "3000835350",
+                        "message": "/fiat/p2p/oss/showObj/file.jpg",
+                        "msgType": 2,
+                        "createDate": "1741763627000",
+                        "contentType": "pic",
+                        "userId": "290118",
+                        "accountId": "290120",
+                        "orderId": "order-123",
+                        "msgUuid": "",
+                        "nickName": "Покупатель",
+                        "roleType": "user",
+                        "msgCode": 0,
+                        "fileName": "file.jpg"
+                      }
+                    ]
+                  }
+                }
+                """);
+            }
+        });
         server.start();
 
         try {
@@ -191,14 +242,19 @@ class HttpBybitGatewayTests {
             properties.setApiKey("test-api-key");
             properties.setApiSecret("test-api-secret");
             properties.setP2pAdId("ad-123");
+            properties.setChatMessagePageSize(2);
             HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
 
             List<BybitChatMessage> messages = gateway.fetchChatMessages("order-123");
 
-            assertThat(messages).hasSize(1);
+            assertThat(chatRequests).hasValue(2);
+            assertThat(messages).hasSize(3);
             assertThat(messages.getFirst().message()).isEqualTo("Здравствуйте");
+            assertThat(messages.getFirst().accountId()).isEqualTo("290120");
             assertThat(messages.getFirst().nickname()).isEqualTo("Покупатель");
             assertThat(messages.getFirst().createdAt()).isEqualTo(Instant.ofEpochMilli(1741763625000L));
+            assertThat(messages.get(1).messageCode()).isEqualTo(1011);
+            assertThat(messages.get(2).fileName()).isEqualTo("file.jpg");
         } finally {
             server.stop(0);
         }

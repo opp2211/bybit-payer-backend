@@ -49,6 +49,15 @@ public class WorkspaceEntity {
     @Column(name = "bybit_p2p_ad_id", length = 128)
     private String bybitP2pAdId;
 
+    @Column(name = "bybit_user_id", length = 128)
+    private String bybitUserId;
+
+    @Column(name = "bybit_account_id", length = 128)
+    private String bybitAccountId;
+
+    @Column(name = "bybit_nickname", length = 128)
+    private String bybitNickname;
+
     @Column(name = "receipt_email")
     private String receiptEmail;
 

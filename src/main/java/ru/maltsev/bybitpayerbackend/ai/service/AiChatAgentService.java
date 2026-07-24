@@ -30,8 +30,6 @@ import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionMessageType;
 import ru.maltsev.bybitpayerbackend.ai.repository.AiChatSessionRepository;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
@@ -50,7 +48,6 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
-import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 
 @Service
 @Slf4j
@@ -68,9 +65,6 @@ public class AiChatAgentService {
     private final AiChatSessionRepository sessionRepository;
     private final WithdrawalRequestRepository withdrawalRepository;
     private final EmailReceiptCheckRepository receiptCheckRepository;
-    private final BybitGateway bybitGateway;
-    private final BybitCredentialsContext bybitCredentialsContext;
-    private final WorkspaceSecretService workspaceSecretService;
     private final WorkspaceAccessService workspaceAccessService;
     private final CurrentUserService currentUserService;
     private final AuditService auditService;
@@ -85,9 +79,6 @@ public class AiChatAgentService {
             AiChatSessionRepository sessionRepository,
             WithdrawalRequestRepository withdrawalRepository,
             EmailReceiptCheckRepository receiptCheckRepository,
-            BybitGateway bybitGateway,
-            BybitCredentialsContext bybitCredentialsContext,
-            WorkspaceSecretService workspaceSecretService,
             WorkspaceAccessService workspaceAccessService,
             CurrentUserService currentUserService,
             AuditService auditService,
@@ -100,9 +91,6 @@ public class AiChatAgentService {
         this.sessionRepository = sessionRepository;
         this.withdrawalRepository = withdrawalRepository;
         this.receiptCheckRepository = receiptCheckRepository;
-        this.bybitGateway = bybitGateway;
-        this.bybitCredentialsContext = bybitCredentialsContext;
-        this.workspaceSecretService = workspaceSecretService;
         this.workspaceAccessService = workspaceAccessService;
         this.currentUserService = currentUserService;
         this.auditService = auditService;
@@ -311,10 +299,7 @@ public class AiChatAgentService {
 
         List<BybitChatMessage> messages;
         try {
-            messages = bybitCredentialsContext.callWith(
-                    workspaceSecretService.bybitCredentials(session.getWorkspace()),
-                    () -> bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId())
-            );
+            messages = chatService.getCounterpartyTextMessages(session.getWorkspace(), withdrawal);
         } catch (RuntimeException exception) {
             requireOperator(session, "Не удалось прочитать чат Bybit: " + exception.getMessage(), false);
             sessionRepository.save(session);
@@ -322,7 +307,6 @@ public class AiChatAgentService {
         }
 
         messages.stream()
-                .filter(this::incoming)
                 .filter(message -> newIncoming(session, message))
                 .sorted(Comparator.comparing(
                         BybitChatMessage::createdAt,
@@ -845,10 +829,6 @@ public class AiChatAgentService {
                 session.getSuggestedAt(),
                 session.getLastDecisionSummary()
         );
-    }
-
-    private boolean incoming(BybitChatMessage message) {
-        return !message.system() && "user".equalsIgnoreCase(message.roleType());
     }
 
     private boolean newIncoming(AiChatSessionEntity session, BybitChatMessage message) {

@@ -104,8 +104,12 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
 - `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
+- `POST /v5/p2p/user/personal/info` — read the workspace Bybit `userId`, `accountId`,
+  and `nickName` used for chat author classification.
 - `POST /v5/p2p/order/message/send` — send requisites and operator messages to order chat.
 - `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
+  The gateway reads pages of up to 30 messages until a page returns fewer messages or
+  `BYBIT_CHAT_MESSAGE_MAX_PAGES` is reached.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
 Managed ad text is built from the full payment group of the earliest queue-managed
@@ -203,10 +207,22 @@ four card digits and the parsed recipient name, because T-Bank receipts show nam
 as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
 `123456******1234`.
 
-Chat messages are not stored locally. Outgoing messages are sent directly to
-`/v5/p2p/order/message/send`, and withdrawal details read chat history only from
-`/v5/p2p/order/message/listpage`. If Bybit chat history is unavailable, the API
-returns an error instead of falling back to cached local messages.
+Chat history is not persisted locally. Outgoing messages are sent directly to
+`/v5/p2p/order/message/send`, and withdrawal details read chat history from
+`/v5/p2p/order/message/listpage` through `BybitChatService`. The service keeps a
+short in-memory cache per workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (5 seconds
+by default), removes entries idle longer than `CHAT_READ_CACHE_MAX_IDLE_SECONDS`, and
+caps the cache with `CHAT_READ_CACHE_MAX_ENTRIES`. If Bybit chat history is unavailable
+and no fresh cache entry can be used, the API returns an error.
+
+The UI chat response is formatted by the backend. `SYS_ORDER_CARD` (`msgType=11`) messages
+are hidden. `msgType=0`, `msgType=103`, `roleType=sys`, and `roleType=alarm` are shown as
+system messages; `msgType=5` or `msgType=6` are shown as support. Text content uses
+`content.type=TEXT`; attachments use `IMAGE`, `PDF`, or `VIDEO`, and relative Bybit file
+paths are resolved against `BYBIT_CHAT_FILE_BASE_URL` (`https://api2.bybit.com` by default).
+Workspace Bybit `userId`/`accountId` classify own messages, and `bybit_bot_chat_messages`
+stores `msgUuid` values sent by automation so the frontend can distinguish bot messages
+from manual operator messages.
 
 Automatic requisite messages depend on withdrawal method:
 

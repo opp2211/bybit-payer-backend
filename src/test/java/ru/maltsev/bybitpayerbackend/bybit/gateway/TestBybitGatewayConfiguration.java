@@ -31,6 +31,7 @@ public class TestBybitGatewayConfiguration {
         when(gateway.fetchAvailableUsdtBalance()).thenReturn(new BigDecimal("100000"));
         when(gateway.fetchActiveOrders()).thenReturn(List.of());
         when(gateway.fetchOrder(anyString())).thenReturn(Optional.empty());
+        when(gateway.fetchAccountInfo()).thenReturn(new BybitAccountInfo("seller-user", "seller-account", "Seller"));
         when(gateway.fetchChatMessages(anyString())).thenReturn(List.of());
         return gateway;
     }

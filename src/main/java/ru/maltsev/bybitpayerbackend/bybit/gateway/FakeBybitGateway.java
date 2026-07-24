@@ -33,6 +33,10 @@ public class FakeBybitGateway implements BybitGateway {
     private static final String FINISHED = "50";
     private static final String FAKE_BUYER_NICKNAME = "Fake Buyer";
     private static final String SELLER_NICKNAME = "Seller";
+    private static final String FAKE_BUYER_USER_ID = "fake-buyer";
+    private static final String FAKE_BUYER_ACCOUNT_ID = "fake-buyer-account";
+    private static final String SELLER_USER_ID = "seller";
+    private static final String SELLER_ACCOUNT_ID = "seller-account";
     private static final String TEXT_CONTENT_TYPE = "str";
     private static final int TEXT_MESSAGE_TYPE = 1;
 
@@ -81,6 +85,11 @@ public class FakeBybitGateway implements BybitGateway {
     }
 
     @Override
+    public BybitAccountInfo fetchAccountInfo() {
+        return new BybitAccountInfo(SELLER_USER_ID, SELLER_ACCOUNT_ID, SELLER_NICKNAME);
+    }
+
+    @Override
     public Optional<BybitP2pOrder> fetchOrder(String bybitOrderId) {
         return Optional.ofNullable(orders.get(bybitOrderId))
                 .map(SimulatedOrder::toBybitOrder);
@@ -104,7 +113,10 @@ public class FakeBybitGateway implements BybitGateway {
                         order.bybitOrderId(),
                         message.messageUuid(),
                         message.nickname(),
-                        message.roleType()
+                        message.roleType(),
+                        message.accountId(),
+                        0,
+                        ""
                 ))
                 .toList();
     }
@@ -150,7 +162,7 @@ public class FakeBybitGateway implements BybitGateway {
     @Override
     public void sendChatMessage(String bybitOrderId, String messageUuid, String messageText) {
         SimulatedOrder order = requireOrderForGateway(bybitOrderId);
-        appendMessage(order, messageUuid, messageText, "seller", SELLER_NICKNAME, "merchant");
+        appendMessage(order, messageUuid, messageText, SELLER_USER_ID, SELLER_ACCOUNT_ID, SELLER_NICKNAME, "merchant");
         log.info("Fake Bybit chat message sent: orderId={}, messageUuid={}", bybitOrderId, messageUuid);
     }
 
@@ -227,7 +239,8 @@ public class FakeBybitGateway implements BybitGateway {
                 order,
                 "fake-msg-" + messageSequence.incrementAndGet(),
                 messageText,
-                "fake-buyer",
+                FAKE_BUYER_USER_ID,
+                FAKE_BUYER_ACCOUNT_ID,
                 FAKE_BUYER_NICKNAME,
                 "user"
         );
@@ -256,6 +269,7 @@ public class FakeBybitGateway implements BybitGateway {
             String messageUuid,
             String messageText,
             String userId,
+            String accountId,
             String nickname,
             String roleType
     ) {
@@ -265,6 +279,7 @@ public class FakeBybitGateway implements BybitGateway {
                 "msg-" + messageSequence.incrementAndGet(),
                 messageText.trim(),
                 userId,
+                accountId,
                 now,
                 messageUuid,
                 nickname,
@@ -404,6 +419,7 @@ public class FakeBybitGateway implements BybitGateway {
             String id,
             String message,
             String userId,
+            String accountId,
             Instant createdAt,
             String messageUuid,
             String nickname,

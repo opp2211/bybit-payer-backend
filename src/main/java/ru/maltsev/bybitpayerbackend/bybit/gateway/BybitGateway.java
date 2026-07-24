@@ -18,6 +18,8 @@ public interface BybitGateway {
 
     Optional<BybitP2pOrder> fetchOrder(String bybitOrderId);
 
+    BybitAccountInfo fetchAccountInfo();
+
     List<BybitChatMessage> fetchChatMessages(String bybitOrderId);
 
     void updateManagedAd(AdUpdateCommand command);

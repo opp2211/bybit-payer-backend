@@ -9,6 +9,7 @@ public record WorkspaceResponse(
         String ownerUsername,
         String currentUserRole,
         String bybitP2pAdId,
+        String bybitNickname,
         String receiptEmail,
         String imapHost,
         Integer imapPort,

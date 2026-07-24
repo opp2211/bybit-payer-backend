@@ -1,43 +1,56 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
+import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
+import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageContentType;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
+import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageSenderType;
+import ru.maltsev.bybitpayerbackend.bybit.entity.BybitBotChatMessageEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
+import ru.maltsev.bybitpayerbackend.bybit.repository.BybitBotChatMessageRepository;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.security.service.CurrentUserService;
 import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
-import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
-import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
-import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
-import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
-import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceBybitIdentity;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceBybitIdentityService;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 
 @Service
 @Slf4j
 public class BybitChatService {
 
     private static final String HELLO_MESSAGE = "\u041f\u0440\u0438\u0432\u0435\u0442";
+    private static final String TEXT_CONTENT_TYPE = "str";
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventService eventService;
@@ -47,8 +60,12 @@ public class BybitChatService {
     private final WorkspaceAccessService workspaceAccessService;
     private final CurrentUserService currentUserService;
     private final AuditService auditService;
+    private final BybitBotChatMessageRepository botMessageRepository;
+    private final WorkspaceBybitIdentityService workspaceBybitIdentityService;
+    private final BybitChatMessageFormatter formatter;
     private final BusinessProperties businessProperties;
     private final Clock clock;
+    private final ConcurrentHashMap<ChatCacheKey, ChatCacheEntry> chatCache = new ConcurrentHashMap<>();
 
     @Autowired
     public BybitChatService(
@@ -60,6 +77,9 @@ public class BybitChatService {
             WorkspaceAccessService workspaceAccessService,
             CurrentUserService currentUserService,
             AuditService auditService,
+            BybitBotChatMessageRepository botMessageRepository,
+            WorkspaceBybitIdentityService workspaceBybitIdentityService,
+            BybitChatMessageFormatter formatter,
             BusinessProperties businessProperties,
             Clock clock
     ) {
@@ -71,6 +91,9 @@ public class BybitChatService {
         this.workspaceAccessService = workspaceAccessService;
         this.currentUserService = currentUserService;
         this.auditService = auditService;
+        this.botMessageRepository = botMessageRepository;
+        this.workspaceBybitIdentityService = workspaceBybitIdentityService;
+        this.formatter = formatter;
         this.businessProperties = businessProperties;
         this.clock = clock;
     }
@@ -91,6 +114,9 @@ public class BybitChatService {
                 null,
                 null,
                 null,
+                null,
+                null,
+                new BybitChatMessageFormatter(new BybitProperties()),
                 businessProperties,
                 clock
         );
@@ -162,21 +188,28 @@ public class BybitChatService {
 
     @Transactional
     public boolean sendAgentMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal, List<String> messages) {
+        WorkspaceEntity effectiveWorkspace = effectiveWorkspace(workspace, withdrawal);
         boolean allSent = true;
-        for (String message : messages) {
-            if (!StringUtils.hasText(message)) {
+        for (String rawMessage : messages) {
+            if (!StringUtils.hasText(rawMessage)) {
                 continue;
             }
-            boolean sent;
-            if (workspace != null && workspaceSecretService != null) {
-                sent = bybitCredentialsContext.callWith(
-                        workspaceSecretService.bybitCredentials(workspace),
-                        () -> sendBybitMessage(withdrawal, message.trim())
+            String message = rawMessage.trim();
+            SentChatMessage sentMessage;
+            if (effectiveWorkspace != null && workspaceSecretService != null) {
+                sentMessage = bybitCredentialsContext.callWith(
+                        workspaceSecretService.bybitCredentials(effectiveWorkspace),
+                        () -> sendBybitMessage(withdrawal, message)
                 );
             } else {
-                sent = sendBybitMessage(withdrawal, message.trim());
+                sentMessage = sendBybitMessage(withdrawal, message);
             }
-            allSent = allSent && sent;
+            if (sentMessage == null) {
+                allSent = false;
+            } else {
+                storeBotMessage(effectiveWorkspace, withdrawal, sentMessage);
+                appendSentMessageToCache(effectiveWorkspace, withdrawal, sentMessage);
+            }
             sleepBetweenMessages();
         }
         return allSent;
@@ -190,10 +223,12 @@ public class BybitChatService {
             throw BusinessException.conflict("Bybit order is not linked to withdrawal yet");
         }
 
-        String message = rawMessage.trim();
-        if (!sendBybitMessage(withdrawal, message)) {
+        String message = normalizedMessage(rawMessage);
+        SentChatMessage sentMessage = sendBybitMessage(withdrawal, message);
+        if (sentMessage == null) {
             throw BusinessException.conflict("Failed to send message to Bybit chat");
         }
+        appendSentMessageToCache(withdrawal.getWorkspace(), withdrawal, sentMessage);
         eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator");
     }
 
@@ -207,14 +242,15 @@ public class BybitChatService {
             throw BusinessException.conflict("Bybit order is not linked to withdrawal yet");
         }
 
-        String message = rawMessage.trim();
-        boolean sent = bybitCredentialsContext.callWith(
+        String message = normalizedMessage(rawMessage);
+        SentChatMessage sentMessage = bybitCredentialsContext.callWith(
                 workspaceSecretService.bybitCredentials(workspace),
                 () -> sendBybitMessage(withdrawal, message)
         );
-        if (!sent) {
+        if (sentMessage == null) {
             throw BusinessException.conflict("Failed to send message to Bybit chat");
         }
+        appendSentMessageToCache(workspace, withdrawal, sentMessage);
         eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator", currentUser);
         auditService.add(currentUser, workspace, "BYBIT_CHAT_MESSAGE_SENT", "WITHDRAWAL", withdrawal.getPublicId(), null);
     }
@@ -230,16 +266,64 @@ public class BybitChatService {
             return List.of();
         }
 
-        List<BybitChatMessage> remoteMessages;
+        List<BybitChatMessage> remoteMessages = getRawMessages(workspace, withdrawal);
+        WorkspaceBybitIdentity identity = resolveIdentity(workspace);
+        Set<String> botMessageUuids = botMessageUuids(workspace, withdrawal.getBybitOrderId(), remoteMessages);
+
+        return remoteMessages.stream()
+                .filter(message -> !message.hidden())
+                .map(message -> formatter.toResponse(message, identity, botMessageUuids))
+                .sorted(Comparator.comparing(
+                        ChatMessageLogResponse::createdAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                ).thenComparing(ChatMessageLogResponse::id, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<BybitChatMessage> getCounterpartyTextMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            return List.of();
+        }
+        WorkspaceBybitIdentity identity = resolveIdentity(workspace);
+        return getRawMessages(workspace, withdrawal).stream()
+                .filter(message -> !message.hidden())
+                .filter(message -> formatter.contentType(message) == ChatMessageContentType.TEXT)
+                .filter(message -> formatter.senderType(message, identity, Set.of()) == ChatMessageSenderType.COUNTERPARTY)
+                .toList();
+    }
+
+    @Scheduled(fixedDelayString = "30s")
+    public void cleanChatCache() {
+        Instant now = Instant.now(clock);
+        Duration maxIdle = businessProperties.getChatReadCacheMaxIdle();
+        if (maxIdle.isZero() || maxIdle.isNegative()) {
+            chatCache.clear();
+            return;
+        }
+        chatCache.entrySet().removeIf(
+                entry -> Duration.between(entry.getValue().lastAccessAt, now).compareTo(maxIdle) > 0
+        );
+
+        int maxEntries = businessProperties.getChatReadCacheMaxEntries();
+        if (maxEntries <= 0) {
+            chatCache.clear();
+            return;
+        }
+        int extraEntries = chatCache.size() - maxEntries;
+        if (extraEntries <= 0) {
+            return;
+        }
+        chatCache.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessAt))
+                .limit(extraEntries)
+                .map(java.util.Map.Entry::getKey)
+                .forEach(chatCache::remove);
+    }
+
+    private List<BybitChatMessage> getRawMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
         try {
-            if (workspace == null || workspaceSecretService == null) {
-                remoteMessages = bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId());
-            } else {
-                remoteMessages = bybitCredentialsContext.callWith(
-                        workspaceSecretService.bybitCredentials(workspace),
-                        () -> bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId())
-                );
-            }
+            return cachedRemoteMessages(workspace, withdrawal);
         } catch (RuntimeException exception) {
             log.warn(
                     "Bybit chat history fetch failed: withdrawalId={}, orderId={}, message={}",
@@ -249,23 +333,129 @@ public class BybitChatService {
             );
             throw BusinessException.serviceUnavailable("Bybit chat history is temporarily unavailable");
         }
-
-        List<ChatMessageLogResponse> result = new ArrayList<>();
-        for (BybitChatMessage remote : remoteMessages) {
-            result.add(toRemoteResponse(remote));
-        }
-        result.sort(Comparator.comparing(
-                ChatMessageLogResponse::createdAt,
-                Comparator.nullsLast(Comparator.naturalOrder())
-        ));
-        return List.copyOf(result);
     }
 
-    private boolean sendBybitMessage(WithdrawalRequestEntity withdrawal, String messageText) {
+    private List<BybitChatMessage> cachedRemoteMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        ChatCacheKey key = new ChatCacheKey(workspace == null ? null : workspace.getId(), withdrawal.getBybitOrderId());
+        ChatCacheEntry entry = chatCache.computeIfAbsent(key, ignored -> new ChatCacheEntry());
+        Instant now = Instant.now(clock);
+        List<BybitChatMessage> cachedMessages = entry.messages;
+        if (cachedMessages != null && fresh(entry, now)) {
+            entry.lastAccessAt = now;
+            return cachedMessages;
+        }
+
+        entry.lock.lock();
+        try {
+            now = Instant.now(clock);
+            cachedMessages = entry.messages;
+            if (cachedMessages != null && fresh(entry, now)) {
+                entry.lastAccessAt = now;
+                return cachedMessages;
+            }
+
+            List<BybitChatMessage> remoteMessages = fetchRemoteMessages(workspace, withdrawal);
+            List<BybitChatMessage> immutableMessages = List.copyOf(remoteMessages);
+            entry.messages = immutableMessages;
+            entry.fetchedAt = now;
+            entry.lastAccessAt = now;
+            return immutableMessages;
+        } finally {
+            entry.lock.unlock();
+        }
+    }
+
+    private boolean fresh(ChatCacheEntry entry, Instant now) {
+        return entry.fetchedAt != null
+                && Duration.between(entry.fetchedAt, now).compareTo(businessProperties.getChatReadCacheTtl()) < 0;
+    }
+
+    private List<BybitChatMessage> fetchRemoteMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        if (workspace == null || workspaceSecretService == null) {
+            return bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId());
+        }
+        return bybitCredentialsContext.callWith(
+                workspaceSecretService.bybitCredentials(workspace),
+                () -> bybitGateway.fetchChatMessages(withdrawal.getBybitOrderId())
+        );
+    }
+
+    private void storeBotMessage(
+            WorkspaceEntity workspace,
+            WithdrawalRequestEntity withdrawal,
+            SentChatMessage sentMessage
+    ) {
+        if (botMessageRepository == null || !StringUtils.hasText(sentMessage.messageUuid())) {
+            return;
+        }
+        BybitBotChatMessageEntity entity = new BybitBotChatMessageEntity();
+        entity.setWorkspace(workspace);
+        entity.setWithdrawalRequest(withdrawal);
+        entity.setBybitOrderId(withdrawal.getBybitOrderId());
+        entity.setMsgUuid(sentMessage.messageUuid());
+        entity.setMessageText(sentMessage.messageText());
+        entity.setCreatedAt(Instant.now(clock));
+        botMessageRepository.save(entity);
+    }
+
+    private void appendSentMessageToCache(
+            WorkspaceEntity workspace,
+            WithdrawalRequestEntity withdrawal,
+            SentChatMessage sentMessage
+    ) {
+        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            return;
+        }
+        ChatCacheEntry entry = chatCache.get(new ChatCacheKey(
+                workspace == null ? null : workspace.getId(),
+                withdrawal.getBybitOrderId()
+        ));
+        if (entry == null) {
+            return;
+        }
+
+        entry.lock.lock();
+        try {
+            List<BybitChatMessage> currentMessages = entry.messages;
+            if (currentMessages == null) {
+                return;
+            }
+            boolean alreadyCached = currentMessages.stream()
+                    .anyMatch(message -> sentMessage.messageUuid().equals(message.messageUuid()));
+            if (alreadyCached) {
+                return;
+            }
+
+            Instant now = Instant.now(clock);
+            List<BybitChatMessage> updatedMessages = new ArrayList<>(currentMessages);
+            updatedMessages.add(new BybitChatMessage(
+                    "local:" + sentMessage.messageUuid(),
+                    sentMessage.messageText(),
+                    workspace == null ? null : workspace.getBybitUserId(),
+                    1,
+                    now,
+                    TEXT_CONTENT_TYPE,
+                    withdrawal.getBybitOrderId(),
+                    sentMessage.messageUuid(),
+                    workspace == null ? null : workspace.getBybitNickname(),
+                    "user",
+                    workspace == null ? null : workspace.getBybitAccountId(),
+                    0,
+                    ""
+            ));
+            entry.messages = List.copyOf(updatedMessages);
+            entry.fetchedAt = now;
+            entry.lastAccessAt = now;
+        } finally {
+            entry.lock.unlock();
+        }
+    }
+
+    private SentChatMessage sendBybitMessage(WithdrawalRequestEntity withdrawal, String messageText) {
         String messageUuid = UUID.randomUUID().toString();
         try {
             bybitGateway.sendChatMessage(withdrawal.getBybitOrderId(), messageUuid, messageText);
-            return true;
+            return new SentChatMessage(messageUuid, messageText);
         } catch (Exception exception) {
             log.warn(
                     "Bybit chat message failed: orderId={}, withdrawalId={}, messageUuid={}, message={}",
@@ -274,39 +464,68 @@ public class BybitChatService {
                     messageUuid,
                     exception.getMessage()
             );
-            return false;
+            return null;
         }
     }
 
-    private ChatMessageLogResponse toRemoteResponse(BybitChatMessage message) {
-        String direction = direction(message);
-        return new ChatMessageLogResponse(
-                "bybit:" + message.id(),
-                message.orderId(),
-                null,
-                message.message(),
-                direction,
-                authorName(message, direction),
-                message.contentType(),
-                "SENT",
-                message.createdAt(),
-                null
+    private Set<String> botMessageUuids(
+            WorkspaceEntity workspace,
+            String bybitOrderId,
+            List<BybitChatMessage> messages
+    ) {
+        if (botMessageRepository == null) {
+            return Set.of();
+        }
+        Set<String> messageUuids = messages.stream()
+                .map(BybitChatMessage::messageUuid)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+        if (messageUuids.isEmpty()) {
+            return Set.of();
+        }
+        List<BybitBotChatMessageEntity> botMessages = workspace == null
+                ? botMessageRepository.findAllByBybitOrderIdAndMsgUuidIn(bybitOrderId, messageUuids)
+                : botMessageRepository.findAllByWorkspaceAndBybitOrderIdAndMsgUuidIn(
+                        workspace,
+                        bybitOrderId,
+                        messageUuids
+                );
+        return botMessages.stream()
+                .map(BybitBotChatMessageEntity::getMsgUuid)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private WorkspaceBybitIdentity resolveIdentity(WorkspaceEntity workspace) {
+        if (workspace == null) {
+            return new WorkspaceBybitIdentity(null, null, null);
+        }
+        if (workspaceBybitIdentityService != null) {
+            try {
+                return workspaceBybitIdentityService.resolve(workspace);
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "Bybit workspace identity fetch failed: workspace={}, message={}",
+                        workspace.getPublicId(),
+                        exception.getMessage()
+                );
+            }
+        }
+        return new WorkspaceBybitIdentity(
+                workspace.getBybitUserId(),
+                workspace.getBybitAccountId(),
+                workspace.getBybitNickname()
         );
     }
 
-    private String direction(BybitChatMessage message) {
-        if (message.system()) {
-            return "SYSTEM";
-        }
-        return "user".equalsIgnoreCase(message.roleType()) ? "INCOMING" : "OUTGOING";
+    private WorkspaceEntity effectiveWorkspace(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        return workspace == null ? withdrawal.getWorkspace() : workspace;
     }
 
-    private String authorName(BybitChatMessage message, String direction) {
-        return switch (direction) {
-            case "SYSTEM" -> "Bybit";
-            case "OUTGOING" -> "\u0412\u044b";
-            default -> StringUtils.hasText(message.nickname()) ? message.nickname() : "\u041a\u043e\u043d\u0442\u0440\u0430\u0433\u0435\u043d\u0442";
-        };
+    private String normalizedMessage(String rawMessage) {
+        if (!StringUtils.hasText(rawMessage)) {
+            throw BusinessException.conflict("Chat message must not be blank");
+        }
+        return rawMessage.trim();
     }
 
     private void sleepBetweenMessages() {
@@ -320,5 +539,19 @@ public class BybitChatService {
             Thread.currentThread().interrupt();
             log.warn("Bybit chat message delay interrupted");
         }
+    }
+
+    private record ChatCacheKey(Long workspaceId, String bybitOrderId) {
+    }
+
+    private static final class ChatCacheEntry {
+
+        private final ReentrantLock lock = new ReentrantLock();
+        private volatile List<BybitChatMessage> messages;
+        private volatile Instant fetchedAt;
+        private volatile Instant lastAccessAt = Instant.EPOCH;
+    }
+
+    private record SentChatMessage(String messageUuid, String messageText) {
     }
 }
