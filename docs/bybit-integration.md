@@ -64,7 +64,9 @@ It is intended for manual testing and lets a fake counterparty create an order
 from a published managed ad, write text messages, mark the order as paid, or
 cancel it. The normal order watcher still performs matching, foreign-order
 tracking, paid-state handling, and withdrawal completion through the
-`BybitGateway` interface.
+`BybitGateway` interface. Fake order ids are UUID-based so cancelled bindings
+left in the local database do not block new simulator orders after an
+application restart or simulator reset.
 
 The same profile also disables receipt mail polling through
 `receipt.mail.enabled=false`, so a local instance does not read or mark messages

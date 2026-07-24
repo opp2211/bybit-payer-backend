@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -44,7 +45,6 @@ public class FakeBybitGateway implements BybitGateway {
     private final BusinessProperties businessProperties;
     private final Map<String, SimulatedAd> ads = new ConcurrentHashMap<>();
     private final Map<String, SimulatedOrder> orders = new ConcurrentHashMap<>();
-    private final AtomicLong orderSequence = new AtomicLong(1000);
     private final AtomicLong messageSequence = new AtomicLong(1000);
 
     public FakeBybitGateway(Clock clock, BusinessProperties businessProperties) {
@@ -200,7 +200,7 @@ public class FakeBybitGateway implements BybitGateway {
         }
 
         Instant now = Instant.now(clock);
-        String orderId = "fake-" + orderSequence.incrementAndGet();
+        String orderId = "fake-" + UUID.randomUUID();
         SimulatedOrder order = new SimulatedOrder(
                 orderId,
                 bybitAdId,
@@ -249,7 +249,6 @@ public class FakeBybitGateway implements BybitGateway {
     public synchronized void resetSimulator() {
         orders.clear();
         ads.clear();
-        orderSequence.set(1000);
         messageSequence.set(1000);
         log.info("Fake Bybit simulator state reset");
     }

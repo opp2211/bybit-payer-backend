@@ -36,6 +36,8 @@ class FakeBybitGatewayTests {
                 .singleElement()
                 .satisfies(activeOrder -> {
                     assertThat(activeOrder.bybitOrderId()).isEqualTo(order.bybitOrderId());
+                    assertThat(activeOrder.bybitOrderId()).startsWith("fake-");
+                    assertThat(activeOrder.bybitOrderId()).doesNotMatch("fake-\\d+");
                     assertThat(activeOrder.amountRub()).isEqualByComparingTo("2500.00");
                     assertThat(activeOrder.status()).isEqualTo("10");
                     assertThat(activeOrder.quantityUsdt()).isEqualByComparingTo("25.0000");
