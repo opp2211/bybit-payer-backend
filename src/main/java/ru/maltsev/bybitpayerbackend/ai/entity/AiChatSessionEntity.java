@@ -17,8 +17,11 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.DynamicUpdate;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatSessionStatus;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatStep;
+import ru.maltsev.bybitpayerbackend.ai.model.AiChatAgentMode;
+import ru.maltsev.bybitpayerbackend.ai.model.AiChatAction;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 
@@ -26,6 +29,7 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 @Setter
 @NoArgsConstructor
 @Entity
+@DynamicUpdate
 @Table(name = "ai_chat_sessions")
 public class AiChatSessionEntity {
 
@@ -44,8 +48,9 @@ public class AiChatSessionEntity {
     @Column(name = "bybit_order_id", length = 128)
     private String bybitOrderId;
 
-    @Column(name = "enabled", nullable = false)
-    private boolean enabled = true;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "mode", nullable = false, length = 32)
+    private AiChatAgentMode mode = AiChatAgentMode.ENABLED;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 48)
@@ -76,14 +81,23 @@ public class AiChatSessionEntity {
     @Column(name = "third_party_transfer_confirmed")
     private Boolean thirdPartyTransferConfirmed;
 
-    @Column(name = "final_warning_confirmed")
-    private Boolean finalWarningConfirmed;
+    @Column(name = "receipt_email_confirmed")
+    private Boolean receiptEmailConfirmed;
+
+    @Column(name = "final_warning_sent", nullable = false)
+    private boolean finalWarningSent;
+
+    @Column(name = "payment_actually_sent_claimed", nullable = false)
+    private boolean paymentActuallySentClaimed;
 
     @Column(name = "requisites_sent_at")
     private Instant requisitesSentAt;
 
     @Column(name = "operator_required_at")
     private Instant operatorRequiredAt;
+
+    @Column(name = "operator_handoff_reason", columnDefinition = "text")
+    private String operatorHandoffReason;
 
     @Column(name = "last_processed_message_id", length = 128)
     private String lastProcessedMessageId;
@@ -94,26 +108,43 @@ public class AiChatSessionEntity {
     @Column(name = "last_receipt_check_id_handled")
     private Long lastReceiptCheckIdHandled;
 
-    @Column(name = "unclear_replies_count", nullable = false)
-    private int unclearRepliesCount;
+    @Column(name = "last_inactivity_reminder_at")
+    private Instant lastInactivityReminderAt;
 
-    @Column(name = "cancellation_replies_count", nullable = false)
-    private int cancellationRepliesCount;
+    @Column(name = "payment_verification_reminder_sent_at")
+    private Instant paymentVerificationReminderSentAt;
 
-    @Column(name = "paid_without_receipt_replies_count", nullable = false)
-    private int paidWithoutReceiptRepliesCount;
-
-    @Column(name = "suggested_messages_json")
+    @Column(name = "suggested_messages_json", columnDefinition = "text")
     private String suggestedMessagesJson;
 
-    @Column(name = "suggested_reason")
+    @Column(name = "suggested_reason", columnDefinition = "text")
     private String suggestedReason;
 
     @Column(name = "suggested_at")
     private Instant suggestedAt;
 
-    @Column(name = "last_decision_summary")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "suggested_action", length = 48)
+    private AiChatAction suggestedAction;
+
+    @Column(name = "suggested_final_warning", columnDefinition = "text")
+    private String suggestedFinalWarning;
+
+    @Column(name = "last_decision_summary", columnDefinition = "text")
     private String lastDecisionSummary;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "last_action", length = 48)
+    private AiChatAction lastAction;
+
+    @Column(name = "conversation_summary", columnDefinition = "text")
+    private String conversationSummary;
+
+    @Column(name = "summary_updated_at")
+    private Instant summaryUpdatedAt;
+
+    @Column(name = "last_summarized_message_id", length = 128)
+    private String lastSummarizedMessageId;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

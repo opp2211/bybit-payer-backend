@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,7 +51,7 @@ class BybitChatServiceTests {
         service.sendMessage(7L, "  hello  ");
 
         verify(bybitGateway).sendChatMessage(eq("order-7"), anyString(), eq("hello"));
-        verify(eventService).add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator");
+        verify(eventService, never()).add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator");
     }
 
     @Test
@@ -298,6 +299,9 @@ class BybitChatServiceTests {
         withdrawal.setRecipientCardNumber("2200000000001234");
         withdrawal.setRecipientCardTbank(true);
         withdrawal.setRecipientName("Дмитрий С.");
+        BankEntity bank = new BankEntity();
+        bank.setTitle("Т-Банк");
+        withdrawal.setRecipientBank(bank);
 
         BusinessProperties businessProperties = new BusinessProperties();
         businessProperties.setChatMessageDelay(Duration.ZERO);
@@ -316,7 +320,7 @@ class BybitChatServiceTests {
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(bybitGateway, times(4)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
         assertThat(messageCaptor.getAllValues())
-                .containsExactly("Привет", "2200000000001234", "Дмитрий С.", "receipts@example.com");
+                .containsExactly("Привет", "2200000000001234", "Т-Банк, Дмитрий С.", "receipts@example.com");
     }
 
     @Test
@@ -331,6 +335,9 @@ class BybitChatServiceTests {
         withdrawal.setWithdrawalMethod(WithdrawalMethod.ACCOUNT_NUMBER);
         withdrawal.setRecipientAccountNumber("40817810099910004312");
         withdrawal.setRecipientName("Иван Петров");
+        BankEntity bank = new BankEntity();
+        bank.setTitle("Сбербанк");
+        withdrawal.setRecipientBank(bank);
 
         BusinessProperties businessProperties = new BusinessProperties();
         businessProperties.setChatMessageDelay(Duration.ZERO);
@@ -347,7 +354,7 @@ class BybitChatServiceTests {
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
         verify(bybitGateway, times(3)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
         assertThat(messageCaptor.getAllValues())
-                .containsExactly("Привет", "40817810099910004312", "Иван Петров");
+                .containsExactly("Привет", "40817810099910004312", "Сбербанк, Иван Петров");
     }
 
     private BybitChatService service(

@@ -116,7 +116,7 @@ public class WithdrawalController {
             @PathVariable String withdrawalPublicId,
             @Valid @RequestBody AiChatAgentModeRequest request
     ) {
-        return aiChatAgentService.setMode(workspacePublicId, withdrawalPublicId, request.enabled());
+        return aiChatAgentService.setMode(workspacePublicId, withdrawalPublicId, request.mode());
     }
 
     @PostMapping("/{withdrawalPublicId}/chat-agent/suggestion/send")

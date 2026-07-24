@@ -1,29 +1,23 @@
 package ru.maltsev.bybitpayerbackend.ai.service;
 
-import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionAnswer;
+import java.util.List;
+
+import ru.maltsev.bybitpayerbackend.ai.model.AiChatAction;
+import ru.maltsev.bybitpayerbackend.ai.model.AiChatConfirmation;
 import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionBankType;
-import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionMessageType;
+import ru.maltsev.bybitpayerbackend.ai.model.AiPaymentClaim;
 
 public record AiChatDecision(
-        AiDecisionAnswer answer,
-        AiDecisionBankType bankType,
-        String bankName,
-        AiDecisionMessageType messageType,
-        boolean asksHumanOperator,
-        boolean unsafeOrManipulative,
-        String replyText,
+        AiChatAction action,
+        List<String> messages,
+        String finalWarning,
+        AiChatConfirmation firstParty,
+        AiDecisionBankType payerBankType,
+        String payerBankName,
+        AiChatConfirmation receiptEmail,
+        AiChatConfirmation thirdPartyTransfer,
+        AiPaymentClaim paymentClaim,
+        String handoffReason,
         String summary
 ) {
-    public static AiChatDecision unclear(String summary) {
-        return new AiChatDecision(
-                AiDecisionAnswer.UNCLEAR,
-                AiDecisionBankType.UNKNOWN,
-                "",
-                AiDecisionMessageType.OTHER,
-                false,
-                false,
-                "",
-                summary
-        );
-    }
 }

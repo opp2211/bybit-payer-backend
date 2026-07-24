@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.ai.model.AiModelCallPurpose;
 
 @Getter
 @Setter
@@ -38,13 +39,17 @@ public class AiChatModelCallEntity {
     @Column(name = "model", nullable = false, length = 128)
     private String model;
 
-    @Column(name = "prompt_json", nullable = false)
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "purpose", nullable = false, length = 32)
+    private AiModelCallPurpose purpose;
+
+    @Column(name = "prompt_json", nullable = false, columnDefinition = "text")
     private String promptJson;
 
-    @Column(name = "response_json")
+    @Column(name = "response_json", columnDefinition = "text")
     private String responseJson;
 
-    @Column(name = "error")
+    @Column(name = "error", columnDefinition = "text")
     private String error;
 
     @Column(name = "created_at", nullable = false)

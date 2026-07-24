@@ -169,21 +169,34 @@ public class BybitChatService {
         return switch (withdrawalMethod) {
             case SBP -> List.of(
                     withdrawal.getRecipientPhone(),
-                    withdrawal.getRecipientBank().getTitle() + ", " + withdrawal.getRecipientName()
+                    recipientDetails(withdrawal)
             );
             case CARD_NUMBER -> {
                 List<String> messages = new ArrayList<>();
                 messages.add(withdrawal.getRecipientCardNumber());
-                if (StringUtils.hasText(withdrawal.getRecipientName())) {
-                    messages.add(withdrawal.getRecipientName());
+                String recipientDetails = recipientDetails(withdrawal);
+                if (StringUtils.hasText(recipientDetails)) {
+                    messages.add(recipientDetails);
                 }
                 yield messages;
             }
             case ACCOUNT_NUMBER -> List.of(
                     withdrawal.getRecipientAccountNumber(),
-                    withdrawal.getRecipientName()
+                    recipientDetails(withdrawal)
             );
         };
+    }
+
+    private String recipientDetails(WithdrawalRequestEntity withdrawal) {
+        List<String> details = new ArrayList<>();
+        if (withdrawal.getRecipientBank() != null
+                && StringUtils.hasText(withdrawal.getRecipientBank().getTitle())) {
+            details.add(withdrawal.getRecipientBank().getTitle());
+        }
+        if (StringUtils.hasText(withdrawal.getRecipientName())) {
+            details.add(withdrawal.getRecipientName());
+        }
+        return String.join(", ", details);
     }
 
     @Transactional
@@ -229,7 +242,6 @@ public class BybitChatService {
             throw BusinessException.conflict("Failed to send message to Bybit chat");
         }
         appendSentMessageToCache(withdrawal.getWorkspace(), withdrawal, sentMessage);
-        eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator");
     }
 
     @Transactional
@@ -251,7 +263,6 @@ public class BybitChatService {
             throw BusinessException.conflict("Failed to send message to Bybit chat");
         }
         appendSentMessageToCache(workspace, withdrawal, sentMessage);
-        eventService.add(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, "Chat message sent by operator", currentUser);
         auditService.add(currentUser, workspace, "BYBIT_CHAT_MESSAGE_SENT", "WITHDRAWAL", withdrawal.getPublicId(), null);
     }
 

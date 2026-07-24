@@ -13,7 +13,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class OpenAiProperties {
 
     private String apiKey;
-    private String model = "gpt-5-nano";
+    private String model = "gpt-5.6-terra";
     private URI responsesUrl = URI.create("https://api.openai.com/v1/responses");
-    private Duration timeout = Duration.ofSeconds(15);
+    private Duration timeout = Duration.ofSeconds(30);
 }

@@ -12,9 +12,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AiChatAgentProperties {
 
     private boolean enabled = true;
-    private boolean dryRunByDefault = false;
     private Duration pollInterval = Duration.ofSeconds(5);
-    private int maxUnclearRepliesPerStep = 3;
-    private int maxCancellationReplies = 8;
-    private int maxPaidWithoutReceiptReplies = 3;
+    private Duration inactivityReminderDelay = Duration.ofMinutes(5);
+    private Duration paymentVerificationReminderDelay = Duration.ofSeconds(90);
+    private int maxContextMessages = 29;
+    private int retainedContextMessages = 20;
+    private int maxMessagesPerDecision = 8;
+    private int maxMessageLength = 1000;
 }

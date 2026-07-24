@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,6 @@ import org.junit.jupiter.api.Test;
 import ru.maltsev.bybitpayerbackend.ai.config.OpenAiProperties;
 import ru.maltsev.bybitpayerbackend.ai.entity.AiChatModelCallEntity;
 import ru.maltsev.bybitpayerbackend.ai.entity.AiChatSessionEntity;
-import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionAnswer;
 import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionBankType;
 import ru.maltsev.bybitpayerbackend.ai.repository.AiChatModelCallRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
@@ -35,13 +35,11 @@ class OpenAiChatAgentManualTests {
         AiChatModelCallRepository modelCallRepository = mock(AiChatModelCallRepository.class);
         when(modelCallRepository.save(any(AiChatModelCallEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-
         OpenAiChatAgentClient client = new OpenAiChatAgentClient(
                 properties,
                 modelCallRepository,
                 Clock.systemUTC()
         );
-
         AiChatSessionEntity session = new AiChatSessionEntity();
         session.setWithdrawalRequest(new WithdrawalRequestEntity());
 
@@ -49,28 +47,35 @@ class OpenAiChatAgentManualTests {
             AiChatDecision decision = client.decide(
                     session,
                     new AiChatDecisionRequest(
-                            """
-                                    Ты классификатор коротких сообщений в P2P-чате.
-                                    Верни структурированный ответ по JSON schema.
-                                    """,
-                            """
-                                    Текущий вопрос продавца: "Вы будете отправлять оплату с Т-Банка?"
-                                    Сообщение контрагента: "Да, буду платить с Т-Банка"
-                                    """
+                            new AiChatPromptProvider().systemPrompt(),
+                            List.of(
+                                    new AiChatPromptMessage(
+                                            "user",
+                                            "<application_context>{\"payerBankRequirement\":\"TBANK_AUTO\","
+                                                    + "\"currentRequirement\":\"PAYER_BANK\"}</application_context>"
+                                    ),
+                                    new AiChatPromptMessage(
+                                            "assistant",
+                                            "[ai_agent] Вы будете отправлять оплату с Т-Банка?"
+                                    ),
+                                    new AiChatPromptMessage(
+                                            "user",
+                                            "[NEW][counterparty] Да, буду платить с Т-Банка"
+                                    )
+                            )
                     )
             );
 
             System.out.printf(
-                    "OpenAI ping ok: model=%s, answer=%s, bankType=%s, messageType=%s, summary=%s%n",
+                    "OpenAI ping ok: model=%s, action=%s, bankType=%s, messages=%s, summary=%s%n",
                     client.model(),
-                    decision.answer(),
-                    decision.bankType(),
-                    decision.messageType(),
+                    decision.action(),
+                    decision.payerBankType(),
+                    decision.messages(),
                     decision.summary()
             );
-
-            assertThat(decision.answer()).isEqualTo(AiDecisionAnswer.YES);
-            assertThat(decision.bankType()).isEqualTo(AiDecisionBankType.TBANK);
+            assertThat(decision.action()).isNotNull();
+            assertThat(decision.payerBankType()).isEqualTo(AiDecisionBankType.TBANK);
         } catch (OpenAiUnavailableException exception) {
             fail("OpenAI request failed: " + exception.getMessage(), exception);
         }
@@ -80,12 +85,12 @@ class OpenAiChatAgentManualTests {
         Map<String, String> dotEnv = dotEnv();
         OpenAiProperties properties = new OpenAiProperties();
         properties.setApiKey(config(dotEnv, "openai.api-key", "OPENAI_API_KEY", ""));
-        properties.setModel(config(dotEnv, "openai.model", "OPENAI_MODEL", "gpt-5-nano"));
+        properties.setModel(config(dotEnv, "openai.model", "OPENAI_MODEL", "gpt-5.6-terra"));
         properties.setTimeout(Duration.ofSeconds(Long.parseLong(config(
                 dotEnv,
                 "openai.timeout-seconds",
                 "OPENAI_TIMEOUT_SECONDS",
-                "15"
+                "30"
         ))));
         return properties;
     }

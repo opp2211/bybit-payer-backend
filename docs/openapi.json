@@ -1382,8 +1382,12 @@
           "exists" : {
             "type" : "boolean"
           },
-          "enabled" : {
-            "type" : "boolean"
+          "mode" : {
+            "type" : "string",
+            "enum" : [ "ENABLED", "DISABLED", "DRY_RUN" ]
+          },
+          "modeTitle" : {
+            "type" : "string"
           },
           "status" : {
             "type" : "string"
@@ -1418,17 +1422,32 @@
           },
           "lastDecisionSummary" : {
             "type" : "string"
+          },
+          "lastAction" : {
+            "type" : "string",
+            "enum" : [ "SEND_MESSAGES", "SEND_REQUISITES", "WAIT", "REQUEST_CANCELLATION", "HANDOFF" ]
+          },
+          "conversationSummary" : {
+            "type" : "string"
+          },
+          "summaryUpdatedAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "operatorHandoffReason" : {
+            "type" : "string"
           }
         }
       },
       "AiChatAgentModeRequest" : {
         "type" : "object",
         "properties" : {
-          "enabled" : {
-            "type" : "boolean"
+          "mode" : {
+            "type" : "string",
+            "enum" : [ "ENABLED", "DISABLED", "DRY_RUN" ]
           }
         },
-        "required" : [ "enabled" ]
+        "required" : [ "mode" ]
       },
       "WithdrawalAdvertisementPreviewResponse" : {
         "type" : "object",

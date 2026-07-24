@@ -171,10 +171,19 @@ start mail receipt verification and send the receipt email to chat. `SBERBANK` a
 `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
 skip mailbox polling, and must be released manually.
 
-If the AI chat agent is enabled, binding a Bybit order starts an AI session instead of
-immediately sending fixed requisite messages. The agent can read the withdrawal, order,
-chat, and receipt-check state and can only send chat messages or mark the withdrawal as
-requiring operator attention. It never calls release, cancel, or ad-management actions.
+If the AI chat agent feature is enabled globally, binding a Bybit order starts an AI session
+instead of immediately sending fixed requisite messages. The session has three operator modes:
+
+- `ENABLED`: the agent sends its messages to Bybit automatically and the manual composer is locked;
+- `DISABLED`: the agent neither answers nor prepares suggestions and the operator owns the chat;
+- `DRY_RUN`: the agent prepares one or more messages, but only the operator can send the batch.
+
+The agent can read the withdrawal, order, complete Bybit chat, requisites, and receipt-check
+state. Its structured actions are limited to sending chat messages, requesting backend-controlled
+requisite delivery, waiting, asking the counterparty to cancel, or handing the conversation to an
+operator. It never calls release, cancel, or ad-management actions. Backend validation rejects
+early requisite disclosure and invalid actions; after one corrective model retry, the session is
+handed to an operator.
 AI sessions store the bound `bybit_order_id`; if a withdrawal returns to publication after
 order cancellation and later receives another Bybit order, the old session state is reset
 and the confirmation flow starts again for the new order.
@@ -185,15 +194,33 @@ Before requisites are sent, the agent confirms the withdrawal conditions with th
 - payer bank for every withdrawal;
 - official T-Bank receipt to the workspace `receiptEmail` for `TBANK_AUTO`;
 - optional official T-Bank receipt for `ANY_BANK` counterparties who say they pay from T-Bank;
-- third-party transfer consent when the withdrawal receives payment to a third party;
-- final warning with the exact amount and requisite-safety conditions.
+- third-party transfer consent when the withdrawal receives payment to a third party.
+
+After all mandatory conditions are confirmed, the backend appends the exact copyable requisite
+values to the model-generated lead-in. Phone, card, account number, and receipt email are sent as
+separate messages; bank and recipient name may be combined. The model also writes a separate
+`finalWarning`, which is sent with the requisites and recorded as `finalWarningSent`. This warning
+does not ask the counterparty to confirm anything and is not a checklist of the agreed conditions.
+It tells the counterparty in advance to select exactly the recipient bank shown in the requisites:
+even a transfer to the correct phone number but the wrong bank may be lost, and the seller will not
+be able to help return it.
 
 When a mandatory condition is rejected, the agent does not send requisites and asks the
 counterparty to cancel the order, while marking the withdrawal as requiring operator attention.
 If the agent cannot classify the conversation, OpenAI is unavailable, a receipt is invalid, or
 the counterparty repeatedly asks to release without a valid receipt, it hands off to the operator.
-When the UI disables AI mode, the agent switches to dry-run behavior: it keeps preparing the next
-chat message as a suggestion, while the operator remains responsible for sending it.
+Five minutes of inactivity after requisite delivery can trigger a model-generated follow-up. For
+automatic T-Bank receipt verification, 90 seconds in `PAYMENT_VERIFICATION` without a valid receipt
+can trigger a check that the counterparty actually sent the payment. The model may choose `WAIT`
+when either reminder would be inappropriate in the current conversation.
+
+Only newly observed `COUNTERPARTY` messages trigger a reply. Own bot messages, operator messages,
+and system messages remain in the context but never trigger another model call by themselves. The
+agent sends the global prompt, application state, and ordered conversation to `gpt-5.6-terra`.
+The editable global prompt lives in `src/main/resources/ai/chat-agent-system-prompt.md` and is
+loaded once when the application starts.
+Once more than 29 unsummarized messages accumulate, older messages are summarized by the same model;
+the summary is persisted on the AI session and supplied before the recent messages on later calls.
 
 For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
 from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.
@@ -207,7 +234,8 @@ four card digits and the parsed recipient name, because T-Bank receipts show nam
 as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
 `123456******1234`.
 
-Chat history is not persisted locally. Outgoing messages are sent directly to
+Raw chat history is not persisted locally; only AI session state and the compact conversation
+summary are stored. Outgoing messages are sent directly to
 `/v5/p2p/order/message/send`, and withdrawal details read chat history from
 `/v5/p2p/order/message/listpage` through `BybitChatService`. The service keeps a
 short in-memory cache per workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (5 seconds
@@ -224,10 +252,10 @@ Workspace Bybit `userId`/`accountId` classify own messages, and `bybit_bot_chat_
 stores `msgUuid` values sent by automation so the frontend can distinguish bot messages
 from manual operator messages.
 
-Automatic requisite messages depend on withdrawal method:
+Backend-appended copyable requisite messages depend on withdrawal method:
 
-- `SBP`: greeting, recipient phone, `bank, recipient name`, and receipt email for auto-release groups.
-- `CARD_NUMBER`: greeting, card number, optional recipient name, and receipt email for auto-release groups.
-- `ACCOUNT_NUMBER`: greeting, account number, and recipient name.
+- `SBP`: recipient phone, `bank, recipient name`, and receipt email for auto-release groups.
+- `CARD_NUMBER`: card number, `bank, recipient name`, and receipt email for auto-release groups.
+- `ACCOUNT_NUMBER`: account number and `bank, recipient name`.
 
 Foreign orders are observation-only. They are shown while present in the active Bybit order list and removed locally after they disappear from that list. The application does not submit cancellation requests for them.
