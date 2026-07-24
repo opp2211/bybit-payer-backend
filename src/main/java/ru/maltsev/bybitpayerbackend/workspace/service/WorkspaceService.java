@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitAccountInfo;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentials;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
@@ -82,11 +83,12 @@ public class WorkspaceService {
                 request.bybitApiSecret().trim(),
                 request.bybitP2pAdId().trim()
         );
-        bybitCredentialsContext.runWith(credentials, () -> {
+        BybitAccountInfo bybitAccountInfo = bybitCredentialsContext.callWith(credentials, () -> {
             var readiness = bybitGateway.checkReadiness();
             if (!readiness.available()) {
                 throw BusinessException.conflict("Bybit connection check failed: " + readiness.message());
             }
+            return bybitGateway.fetchAccountInfo();
         });
         mailService.checkConnection(new ru.maltsev.bybitpayerbackend.receipt.service.ReceiptMailbox(
                 request.imapHost().trim(),
@@ -101,6 +103,7 @@ public class WorkspaceService {
         workspace.setName(request.name().trim());
         workspace.setOwner(currentUser);
         workspace.setBybitP2pAdId(request.bybitP2pAdId().trim());
+        applyBybitAccountInfo(workspace, bybitAccountInfo);
         workspace.setReceiptEmail(trimToNull(request.receiptEmail()));
         workspace.setImapHost(request.imapHost().trim());
         workspace.setImapPort(request.imapPort());
@@ -212,6 +215,7 @@ public class WorkspaceService {
                 workspace.getOwner().getUsername(),
                 role.name(),
                 workspace.getBybitP2pAdId(),
+                workspace.getBybitNickname(),
                 workspace.getReceiptEmail(),
                 workspace.getImapHost(),
                 workspace.getImapPort(),
@@ -219,6 +223,15 @@ public class WorkspaceService {
                 workspace.isEnabled(),
                 workspace.getCreatedAt()
         );
+    }
+
+    private void applyBybitAccountInfo(WorkspaceEntity workspace, BybitAccountInfo accountInfo) {
+        if (accountInfo == null) {
+            return;
+        }
+        workspace.setBybitUserId(trimToNull(accountInfo.userId()));
+        workspace.setBybitAccountId(trimToNull(accountInfo.accountId()));
+        workspace.setBybitNickname(trimToNull(accountInfo.nickname()));
     }
 
     private WorkspaceMemberResponse toMemberResponse(WorkspaceMemberEntity member) {

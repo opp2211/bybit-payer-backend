@@ -199,32 +199,61 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     @Override
+    public BybitAccountInfo fetchAccountInfo() {
+        JsonNode result = post("/v5/p2p/user/personal/info", Map.of());
+        return new BybitAccountInfo(
+                result.path("userId").asText(),
+                result.path("accountId").asText(),
+                result.path("nickName").asText()
+        );
+    }
+
+    @Override
     public List<BybitChatMessage> fetchChatMessages(String bybitOrderId) {
         if (!StringUtils.hasText(bybitOrderId)) {
             return List.of();
         }
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("orderId", bybitOrderId);
-        request.put("currentPage", "1");
-        request.put("size", "30");
-        JsonNode messages = post("/v5/p2p/order/message/listpage", request).path("result");
-        if (!messages.isArray()) {
-            return List.of();
+
+        int pageSize = Math.min(Math.max(1, properties.getChatMessagePageSize()), 30);
+        int maxPages = Math.max(1, properties.getChatMessageMaxPages());
+        List<BybitChatMessage> result = new ArrayList<>();
+
+        for (int page = 1; page <= maxPages; page++) {
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("orderId", bybitOrderId);
+            request.put("currentPage", String.valueOf(page));
+            request.put("size", String.valueOf(pageSize));
+            JsonNode messages = post("/v5/p2p/order/message/listpage", request).path("result");
+            if (!messages.isArray()) {
+                return List.copyOf(result);
+            }
+
+            messages.forEach(item -> result.add(new BybitChatMessage(
+                    item.path("id").asText(),
+                    item.path("message").asText(),
+                    item.path("userId").asText(),
+                    item.path("msgType").asInt(),
+                    instantFromMillis(item.path("createDate").asText()),
+                    item.path("contentType").asText("str"),
+                    item.path("orderId").asText(bybitOrderId),
+                    item.path("msgUuid").asText(),
+                    item.path("nickName").asText(),
+                    item.path("roleType").asText(),
+                    item.path("accountId").asText(),
+                    item.path("msgCode").isMissingNode() ? null : item.path("msgCode").asInt(),
+                    item.path("fileName").asText()
+            )));
+            if (messages.size() < pageSize) {
+                return List.copyOf(result);
+            }
         }
 
-        List<BybitChatMessage> result = new ArrayList<>();
-        messages.forEach(item -> result.add(new BybitChatMessage(
-                item.path("id").asText(),
-                item.path("message").asText(),
-                item.path("userId").asText(),
-                item.path("msgType").asInt(),
-                instantFromMillis(item.path("createDate").asText()),
-                item.path("contentType").asText("str"),
-                item.path("orderId").asText(bybitOrderId),
-                item.path("msgUuid").asText(),
-                item.path("nickName").asText(),
-                item.path("roleType").asText()
-        )));
+        log.warn(
+                "Bybit chat message pagination stopped by max page limit: orderId={}, pageSize={}, maxPages={}",
+                bybitOrderId,
+                pageSize,
+                maxPages
+        );
         return List.copyOf(result);
     }
 

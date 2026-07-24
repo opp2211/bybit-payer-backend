@@ -53,8 +53,18 @@ SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 
 The `local` profile uses `FakeBybitGateway` instead of `HttpBybitGateway`.
 The fake gateway returns a stable reference rate and available USDT balance,
-returns no active orders or chat messages, and treats ad updates, ad unpublishing,
-chat messages, and order releases as no-op operations with log messages only.
+and keeps managed ads, P2P orders, and order chat in memory. Managed ad updates
+populate the local P2P simulator, `fetchActiveOrders`, `fetchOrder`, and
+`fetchChatMessages` return the simulated state, operator messages are appended
+to the simulated order chat, and `releaseOrder` marks the simulated order as
+finished.
+
+The local-only simulator API is available at `/api/local/bybit-simulator/**`.
+It is intended for manual testing and lets a fake counterparty create an order
+from a published managed ad, write text messages, mark the order as paid, or
+cancel it. The normal order watcher still performs matching, foreign-order
+tracking, paid-state handling, and withdrawal completion through the
+`BybitGateway` interface.
 
 The same profile also disables receipt mail polling through
 `receipt.mail.enabled=false`, so a local instance does not read or mark messages
@@ -94,8 +104,12 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
 - `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
+- `POST /v5/p2p/user/personal/info` — read the workspace Bybit `userId`, `accountId`,
+  and `nickName` used for chat author classification.
 - `POST /v5/p2p/order/message/send` — send requisites and operator messages to order chat.
 - `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
+  The gateway reads pages of up to 30 messages until a page returns fewer messages or
+  `BYBIT_CHAT_MESSAGE_MAX_PAGES` is reached.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
 
 Managed ad text is built from the full payment group of the earliest queue-managed
@@ -193,10 +207,22 @@ four card digits and the parsed recipient name, because T-Bank receipts show nam
 as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
 `123456******1234`.
 
-Chat messages are not stored locally. Outgoing messages are sent directly to
-`/v5/p2p/order/message/send`, and withdrawal details read chat history only from
-`/v5/p2p/order/message/listpage`. If Bybit chat history is unavailable, the API
-returns an error instead of falling back to cached local messages.
+Chat history is not persisted locally. Outgoing messages are sent directly to
+`/v5/p2p/order/message/send`, and withdrawal details read chat history from
+`/v5/p2p/order/message/listpage` through `BybitChatService`. The service keeps a
+short in-memory cache per workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (5 seconds
+by default), removes entries idle longer than `CHAT_READ_CACHE_MAX_IDLE_SECONDS`, and
+caps the cache with `CHAT_READ_CACHE_MAX_ENTRIES`. If Bybit chat history is unavailable
+and no fresh cache entry can be used, the API returns an error.
+
+The UI chat response is formatted by the backend. `SYS_ORDER_CARD` (`msgType=11`) messages
+are hidden. `msgType=0`, `msgType=103`, `roleType=sys`, and `roleType=alarm` are shown as
+system messages; `msgType=5` or `msgType=6` are shown as support. Text content uses
+`content.type=TEXT`; attachments use `IMAGE`, `PDF`, or `VIDEO`, and relative Bybit file
+paths are resolved against `BYBIT_CHAT_FILE_BASE_URL` (`https://api2.bybit.com` by default).
+Workspace Bybit `userId`/`accountId` classify own messages, and `bybit_bot_chat_messages`
+stores `msgUuid` values sent by automation so the frontend can distinguish bot messages
+from manual operator messages.
 
 Automatic requisite messages depend on withdrawal method:
 

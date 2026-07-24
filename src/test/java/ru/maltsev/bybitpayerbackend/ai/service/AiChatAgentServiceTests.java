@@ -30,9 +30,6 @@ import ru.maltsev.bybitpayerbackend.ai.model.AiChatStep;
 import ru.maltsev.bybitpayerbackend.ai.repository.AiChatSessionRepository;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentials;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
 import ru.maltsev.bybitpayerbackend.security.service.CurrentUserService;
@@ -45,7 +42,6 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
-import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 
 @ExtendWith(MockitoExtension.class)
 class AiChatAgentServiceTests {
@@ -58,10 +54,6 @@ class AiChatAgentServiceTests {
     private WithdrawalRequestRepository withdrawalRepository;
     @Mock
     private EmailReceiptCheckRepository receiptCheckRepository;
-    @Mock
-    private BybitGateway bybitGateway;
-    @Mock
-    private WorkspaceSecretService workspaceSecretService;
     @Mock
     private WorkspaceAccessService workspaceAccessService;
     @Mock
@@ -86,9 +78,6 @@ class AiChatAgentServiceTests {
                 sessionRepository,
                 withdrawalRepository,
                 receiptCheckRepository,
-                bybitGateway,
-                new BybitCredentialsContext(),
-                workspaceSecretService,
                 workspaceAccessService,
                 currentUserService,
                 auditService,
@@ -182,8 +171,7 @@ class AiChatAgentServiceTests {
 
         String reason = "OpenAI unavailable: OpenAI HTTP 403 [unsupported_country_region_territory]: Country, region, or territory not supported";
         when(sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(anyCollection())).thenReturn(List.of(session));
-        when(workspaceSecretService.bybitCredentials(workspace)).thenReturn(new BybitCredentials("key", "secret", "ad"));
-        when(bybitGateway.fetchChatMessages("order-1")).thenReturn(List.of(new BybitChatMessage(
+        when(chatService.getCounterpartyTextMessages(workspace, withdrawal)).thenReturn(List.of(new BybitChatMessage(
                 "message-1",
                 "я буду платить с Т-Банка",
                 "counterparty",

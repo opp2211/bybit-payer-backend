@@ -1138,6 +1138,9 @@
           "bybitP2pAdId" : {
             "type" : "string"
           },
+          "bybitNickname" : {
+            "type" : "string"
+          },
           "receiptEmail" : {
             "type" : "string"
           },
@@ -1698,6 +1701,24 @@
           }
         }
       },
+      "ChatMessageContentResponse" : {
+        "type" : "object",
+        "properties" : {
+          "type" : {
+            "type" : "string",
+            "enum" : [ "TEXT", "IMAGE", "PDF", "VIDEO", "UNKNOWN" ]
+          },
+          "text" : {
+            "type" : "string"
+          },
+          "url" : {
+            "type" : "string"
+          },
+          "fileName" : {
+            "type" : "string"
+          }
+        }
+      },
       "ChatMessageLogResponse" : {
         "type" : "object",
         "properties" : {
@@ -1707,21 +1728,21 @@
           "bybitOrderId" : {
             "type" : "string"
           },
-          "messageIndex" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "messageText" : {
+          "messageUuid" : {
             "type" : "string"
           },
-          "direction" : {
-            "type" : "string"
+          "senderType" : {
+            "type" : "string",
+            "enum" : [ "USER", "BOT", "COUNTERPARTY", "SUPPORT", "SYSTEM" ]
           },
           "authorName" : {
             "type" : "string"
           },
-          "contentType" : {
-            "type" : "string"
+          "content" : {
+            "$ref" : "#/components/schemas/ChatMessageContentResponse"
+          },
+          "raw" : {
+            "$ref" : "#/components/schemas/ChatMessageRawResponse"
           },
           "status" : {
             "type" : "string"
@@ -1731,6 +1752,34 @@
             "format" : "date-time"
           },
           "error" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ChatMessageRawResponse" : {
+        "type" : "object",
+        "properties" : {
+          "msgType" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "msgCode" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "roleType" : {
+            "type" : "string"
+          },
+          "contentType" : {
+            "type" : "string"
+          },
+          "accountId" : {
+            "type" : "string"
+          },
+          "userId" : {
+            "type" : "string"
+          },
+          "nickName" : {
             "type" : "string"
           }
         }

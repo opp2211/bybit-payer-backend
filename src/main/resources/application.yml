@@ -66,12 +66,18 @@ bybit:
   ad-rate-refresh-interval: ${BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES:5}m
   order-source-side: ${BYBIT_ORDER_SOURCE_SIDE:SELL}
   order-page-size: ${BYBIT_ORDER_PAGE_SIZE:30}
+  chat-message-page-size: ${BYBIT_CHAT_MESSAGE_PAGE_SIZE:30}
+  chat-message-max-pages: ${BYBIT_CHAT_MESSAGE_MAX_PAGES:100}
+  chat-file-base-url: ${BYBIT_CHAT_FILE_BASE_URL:https://api2.bybit.com}
   balance-account-type: ${BYBIT_BALANCE_ACCOUNT_TYPE:FUND}
   balance-coin: ${BYBIT_BALANCE_COIN:USDT}
 
 business:
   attention-timeout: ${ATTENTION_TIMEOUT_SECONDS:300}s
   chat-message-delay: ${CHAT_MESSAGE_DELAY_MS:1000}ms
+  chat-read-cache-ttl: ${CHAT_READ_CACHE_TTL_SECONDS:5}s
+  chat-read-cache-max-idle: ${CHAT_READ_CACHE_MAX_IDLE_SECONDS:60}s
+  chat-read-cache-max-entries: ${CHAT_READ_CACHE_MAX_ENTRIES:200}
   usdt-quantity-scale: ${USDT_QUANTITY_SCALE:4}
   max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
   p2p-fee-rate: ${P2P_FEE_RATE:0.00275}

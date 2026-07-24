@@ -33,6 +33,9 @@ public class BybitProperties {
     private int rateSourceMinAdIndex = 7;
     private String orderSourceSide = "SELL";
     private int orderPageSize = 30;
+    private int chatMessagePageSize = 30;
+    private int chatMessageMaxPages = 100;
+    private String chatFileBaseUrl = "https://api2.bybit.com";
     private String balanceAccountType = "FUND";
     private String balanceCoin = "USDT";
 }
