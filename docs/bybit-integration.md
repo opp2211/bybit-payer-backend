@@ -189,6 +189,11 @@ handed to an operator.
 Backend also blocks a normal payment-question reply when the latest counterparty messages clearly
 ask to cancel or say that payment will not happen; the model must correct to cancellation or
 operator handoff.
+If an operator has already started the chat before the AI session is created, the agent skips the
+fixed hello message and continues from the existing conversation. Backend validation also forces
+the model to persist structured facts, such as the payer bank, before moving to the next
+requirement, and blocks "did you really send it?" questions after the counterparty has attached a
+payment-proof file.
 AI sessions store the bound `bybit_order_id`; if a withdrawal returns to publication after
 order cancellation and later receives another Bybit order, the old session state is reset
 and the confirmation flow starts again for the new order.

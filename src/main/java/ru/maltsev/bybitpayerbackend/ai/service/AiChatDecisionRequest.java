@@ -12,7 +12,9 @@ public record AiChatDecisionRequest(
                 "user",
                 "<backend_validation_error>\n" + error
                         + "\nИсправь решение, повтори все факты, которые действительно следуют из переписки,"
-                        + " и верни новое действие.\n</backend_validation_error>"
+                        + " и верни новое действие. Если хотел выдать реквизиты и все условия уже есть в переписке,"
+                        + " не заменяй это фразой «сейчас скину реквизиты»: верни SEND_REQUISITES,"
+                        + " заполни недостающие structured fields и finalWarning.\n</backend_validation_error>"
         ));
         return new AiChatDecisionRequest(systemPrompt, List.copyOf(retriedMessages));
     }
