@@ -38,6 +38,7 @@ import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionBankType;
 import ru.maltsev.bybitpayerbackend.ai.model.AiPaymentClaim;
 import ru.maltsev.bybitpayerbackend.ai.repository.AiChatSessionRepository;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
+import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageContentResponse;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageContentType;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageSenderType;
@@ -180,15 +181,22 @@ public class AiChatAgentService {
                 restarted ? "AI chat agent restarted for new Bybit order" : "AI chat agent started"
         );
 
-        if (!sendNow(session, List.of(HELLO_MESSAGE))) {
-            sessionRepository.save(session);
-            return;
-        }
-
         List<ChatMessageLogResponse> messages = readChatOrHandoff(session);
         if (messages == null) {
             sessionRepository.save(session);
             return;
+        }
+
+        if (!operatorAlreadyStartedConversation(messages)) {
+            if (!sendNow(session, List.of(HELLO_MESSAGE))) {
+                sessionRepository.save(session);
+                return;
+            }
+            messages = readChatOrHandoff(session);
+            if (messages == null) {
+                sessionRepository.save(session);
+                return;
+            }
         }
         List<ChatMessageLogResponse> counterpartMessages = counterpartMessages(messages);
         runDecision(
@@ -486,6 +494,9 @@ public class AiChatAgentService {
         }
 
         try {
+            if (counterpartyPaymentProofAttached(session, allMessages, newMessageIds)) {
+                session.setPaymentActuallySentClaimed(true);
+            }
             AiChatDecisionRequest request = decisionRequest(
                     session,
                     trigger,
@@ -865,6 +876,8 @@ public class AiChatAgentService {
             Set<String> newMessageIds
     ) {
         boolean counterpartyRequestedCancellation = counterpartyRequestedCancellation(allMessages, newMessageIds);
+        boolean paymentAlreadyClaimed = session.isPaymentActuallySentClaimed()
+                || counterpartyPaymentProofAttached(session, allMessages, newMessageIds);
         if (decision.action() == null) {
             return Optional.of("не указано действие");
         }
@@ -872,6 +885,9 @@ public class AiChatAgentService {
                 && decision.action() != AiChatAction.REQUEST_CANCELLATION
                 && decision.action() != AiChatAction.HANDOFF) {
             return Optional.of("контрагент просит отмену или сообщает, что не сможет оплатить");
+        }
+        if (paymentAlreadyClaimed && asksWhetherPaymentSent(decision.messages())) {
+            return Optional.of("контрагент уже заявил оплату или приложил чек, не нужно спрашивать, отправлен ли перевод");
         }
         if (decision.messages().size() > properties.getMaxMessagesPerDecision()) {
             return Optional.of("слишком много сообщений в одном ответе");
@@ -902,6 +918,17 @@ public class AiChatAgentService {
         }
         if (!requisitesSent(session) && containsProtectedRequisites(session, decision.messages())) {
             return Optional.of("обычное сообщение содержит реквизиты до разрешённой выдачи");
+        }
+        if (!Boolean.TRUE.equals(session.getPayerBankConfirmed())
+                && decision.payerBankType() == AiDecisionBankType.UNKNOWN
+                && asksThirdPartyTransfer(decision.messages())) {
+            return Optional.of("нельзя переходить к 3 лицу, не зафиксировав банк отправителя в payerBankType");
+        }
+        if (!requisitesSent(session)
+                && allRequiredConfirmationsReceived(session)
+                && decision.action() == AiChatAction.SEND_MESSAGES
+                && promisesRequisites(decision.messages())) {
+            return Optional.of("все условия подтверждены, обещание скинуть реквизиты нужно заменить на SEND_REQUISITES");
         }
         if (hasBlockingRejection(session) && !requisitesSent(session)
                 && decision.action() != AiChatAction.REQUEST_CANCELLATION) {
@@ -1000,6 +1027,51 @@ public class AiChatAgentService {
                 .map(this::messageText)
                 .map(this::normalizeDialogText)
                 .anyMatch(text -> COUNTERPARTY_CANCEL_PHRASES.stream().anyMatch(text::contains));
+    }
+
+    private boolean counterpartyPaymentProofAttached(
+            AiChatSessionEntity session,
+            List<ChatMessageLogResponse> allMessages,
+            Set<String> newMessageIds
+    ) {
+        if (newMessageIds.isEmpty()
+                || (!requisitesSent(session)
+                && session.getWithdrawalRequest().getStatus() != WithdrawalStatus.PAYMENT_VERIFICATION)) {
+            return false;
+        }
+        return allMessages.stream()
+                .filter(message -> message.senderType() == ChatMessageSenderType.COUNTERPARTY)
+                .filter(message -> newMessageIds.contains(message.id()))
+                .map(ChatMessageLogResponse::content)
+                .filter(Objects::nonNull)
+                .map(ChatMessageContentResponse::type)
+                .anyMatch(type -> type == ChatMessageContentType.IMAGE
+                        || type == ChatMessageContentType.PDF
+                        || type == ChatMessageContentType.UNKNOWN);
+    }
+
+    private boolean asksWhetherPaymentSent(List<String> messages) {
+        return messages.stream()
+                .map(this::normalizeDialogText)
+                .anyMatch(message -> message.contains("?")
+                        && (message.contains("перевод") || message.contains("оплат"))
+                        && (message.contains("отправ") || message.contains("оплатил") || message.contains("оплатили"))
+                        && (message.contains("уже") || message.contains("точно")));
+    }
+
+    private boolean asksThirdPartyTransfer(List<String> messages) {
+        return messages.stream()
+                .map(this::normalizeDialogText)
+                .anyMatch(message -> message.contains("3 лица")
+                        || message.contains("третьего лица")
+                        || message.contains("третье лицо"));
+    }
+
+    private boolean promisesRequisites(List<String> messages) {
+        return messages.stream()
+                .map(this::normalizeDialogText)
+                .anyMatch(message -> message.contains("реквиз")
+                        && (message.contains("скин") || message.contains("отправ") || message.contains("дам")));
     }
 
     private String normalizeDialogText(String value) {
@@ -1174,6 +1246,23 @@ public class AiChatAgentService {
                 .filter(message -> message.senderType() == ChatMessageSenderType.COUNTERPARTY)
                 .sorted(messageComparator())
                 .toList();
+    }
+
+    private boolean operatorAlreadyStartedConversation(List<ChatMessageLogResponse> messages) {
+        return messages.stream()
+                .filter(message -> message.senderType() == ChatMessageSenderType.USER
+                        || message.senderType() == ChatMessageSenderType.BOT)
+                .filter(message -> message.content() != null)
+                .filter(message -> message.content().type() == ChatMessageContentType.TEXT)
+                .map(this::messageText)
+                .map(this::normalizeDialogText)
+                .filter(StringUtils::hasText)
+                .anyMatch(message -> !looksLikeManagedAdText(message));
+    }
+
+    private boolean looksLikeManagedAdText(String message) {
+        return message.contains("принимаю платеж")
+                && (message.contains("заходите") || message.contains("принимаю на карту"));
     }
 
     private Comparator<ChatMessageLogResponse> messageComparator() {
