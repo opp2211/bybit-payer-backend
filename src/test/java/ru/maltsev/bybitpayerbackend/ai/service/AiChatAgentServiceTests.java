@@ -131,7 +131,10 @@ class AiChatAgentServiceTests {
     void startsWithHelloAndDoesNotReactToOwnMessages() {
         WorkspaceEntity workspace = workspace();
         WithdrawalRequestEntity withdrawal = withdrawal(workspace);
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.empty());
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.empty());
         List<ChatMessageLogResponse> chatWithHello = List.of(message(
                 "bot-hello", ChatMessageSenderType.BOT, "Привет", NOW.minusSeconds(1)
         ));
@@ -172,10 +175,99 @@ class AiChatAgentServiceTests {
     }
 
     @Test
+    void createsNewSessionForReplacementOrderAndCompletesPreviousSession() {
+        WorkspaceEntity workspace = workspace();
+        WithdrawalRequestEntity withdrawal = withdrawal(workspace);
+        withdrawal.setBybitOrderId("order-new");
+        AiChatSessionEntity previousSession = session(workspace, withdrawal, AiChatAgentMode.ENABLED);
+        previousSession.setBybitOrderId("order-old");
+        previousSession.setPayerBankConfirmed(true);
+        previousSession.setPayerBankName("Т-Банк");
+        previousSession.setLastProcessedMessageId("old-message");
+
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(withdrawal, "order-new"))
+                .thenReturn(Optional.empty());
+        when(sessionRepository.findFirstByWithdrawalRequestOrderByCreatedAtDescIdDesc(withdrawal))
+                .thenReturn(Optional.of(previousSession));
+        when(chatService.getMessages(workspace, withdrawal)).thenReturn(List.of());
+        when(openAiClient.decide(any(AiChatSessionEntity.class), any())).thenReturn(decision(
+                AiChatAction.WAIT,
+                List.of(),
+                "",
+                "Новая сессия ждёт ответ контрагента"
+        ));
+
+        service.startForOrder(workspace, withdrawal);
+
+        ArgumentCaptor<AiChatSessionEntity> sessionCaptor = ArgumentCaptor.forClass(AiChatSessionEntity.class);
+        verify(sessionRepository, times(3)).save(sessionCaptor.capture());
+        AiChatSessionEntity newSession = sessionCaptor.getAllValues().stream()
+                .filter(savedSession -> savedSession != previousSession)
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(previousSession.getBybitOrderId()).isEqualTo("order-old");
+        assertThat(previousSession.getMode()).isEqualTo(AiChatAgentMode.DISABLED);
+        assertThat(previousSession.getStatus()).isEqualTo(AiChatSessionStatus.COMPLETED);
+        assertThat(previousSession.getCurrentStep()).isEqualTo(AiChatStep.COMPLETED);
+        assertThat(newSession).isNotSameAs(previousSession);
+        assertThat(newSession.getId()).isNull();
+        assertThat(newSession.getBybitOrderId()).isEqualTo("order-new");
+        assertThat(newSession.getMode()).isEqualTo(AiChatAgentMode.ENABLED);
+        assertThat(newSession.getStatus()).isEqualTo(AiChatSessionStatus.WAITING_COUNTERPARTY);
+        assertThat(newSession.getPayerBankConfirmed()).isNull();
+        assertThat(newSession.getPayerBankName()).isNull();
+        assertThat(newSession.getLastProcessedMessageId()).isNull();
+        verify(chatService).sendAgentMessages(workspace, withdrawal, List.of("Привет"));
+    }
+
+    @Test
+    void completesOldSessionWhenWithdrawalAlreadyHasReplacementOrder() {
+        WorkspaceEntity workspace = workspace();
+        WithdrawalRequestEntity withdrawal = withdrawal(workspace);
+        withdrawal.setBybitOrderId("order-new");
+        AiChatSessionEntity oldSession = session(workspace, withdrawal, AiChatAgentMode.ENABLED);
+        oldSession.setBybitOrderId("order-old");
+        when(sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(any())).thenReturn(List.of(oldSession));
+
+        service.pollActiveSessions();
+
+        assertThat(oldSession.getMode()).isEqualTo(AiChatAgentMode.DISABLED);
+        assertThat(oldSession.getStatus()).isEqualTo(AiChatSessionStatus.COMPLETED);
+        assertThat(oldSession.getCurrentStep()).isEqualTo(AiChatStep.COMPLETED);
+        assertThat(oldSession.getLastDecisionSummary()).isEqualTo(
+                "AI chat session belongs to a previous Bybit order"
+        );
+        verify(chatService, never()).getMessages(any(), any());
+        verify(openAiClient, never()).decide(any(), any());
+    }
+
+    @Test
+    void doesNotCreateDuplicateSessionForSameOrder() {
+        WorkspaceEntity workspace = workspace();
+        WithdrawalRequestEntity withdrawal = withdrawal(workspace);
+        AiChatSessionEntity currentSession = session(workspace, withdrawal, AiChatAgentMode.ENABLED);
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.of(currentSession));
+
+        service.startForOrder(workspace, withdrawal);
+
+        verify(sessionRepository, never()).findFirstByWithdrawalRequestOrderByCreatedAtDescIdDesc(withdrawal);
+        verify(sessionRepository, never()).save(any());
+        verify(chatService, never()).sendAgentMessages(any(), any(), any());
+        verify(openAiClient, never()).decide(any(), any());
+    }
+
+    @Test
     void doesNotSendHelloWhenOperatorAlreadyStartedConversation() {
         WorkspaceEntity workspace = workspace();
         WithdrawalRequestEntity withdrawal = withdrawal(workspace);
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.empty());
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.empty());
         List<ChatMessageLogResponse> initialChat = List.of(
                 message("ad", ChatMessageSenderType.USER,
                         "Принимаю платеж с любого банка! ___ Заходите только на сумму 2580 / 3780 руб.",
@@ -217,7 +309,10 @@ class AiChatAgentServiceTests {
                 "counterparty-1", ChatMessageSenderType.COUNTERPARTY, "да, отправляйте", NOW.minusSeconds(1)
         ));
         when(sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(any())).thenReturn(List.of(session));
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.of(session));
         when(chatService.getMessages(workspace, withdrawal)).thenReturn(chat);
         when(chatService.requisiteMessages(withdrawal)).thenReturn(List.of(
                 "+79194600946",
@@ -381,7 +476,10 @@ class AiChatAgentServiceTests {
                 "counterparty-1", ChatMessageSenderType.COUNTERPARTY, "да", NOW.minusSeconds(1)
         ));
         when(sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(any())).thenReturn(List.of(session));
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.of(session));
         when(chatService.getMessages(workspace, withdrawal)).thenReturn(chat);
         when(chatService.requisiteMessages(withdrawal)).thenReturn(List.of(
                 "+79194600946",
@@ -409,7 +507,10 @@ class AiChatAgentServiceTests {
         when(workspaceAccessService.getAccessibleWorkspace("workspace", operator)).thenReturn(workspace);
         when(withdrawalRepository.findByWorkspaceAndPublicId(workspace, "abcdef0"))
                 .thenReturn(Optional.of(withdrawal));
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.of(session));
 
         service.sendSuggestion("workspace", "abcdef0");
 
@@ -515,7 +616,10 @@ class AiChatAgentServiceTests {
         when(workspaceAccessService.getAccessibleWorkspace("workspace", operator)).thenReturn(workspace);
         when(withdrawalRepository.findByWorkspaceAndPublicId(workspace, "abcdef0"))
                 .thenReturn(Optional.of(withdrawal));
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.of(session));
 
         service.setMode("workspace", "abcdef0", AiChatAgentMode.ENABLED);
 
@@ -706,7 +810,10 @@ class AiChatAgentServiceTests {
         withdrawal.setPayerBankType(PayerBankType.TBANK_AUTO);
         AiChatSessionEntity session = session(workspace, withdrawal, AiChatAgentMode.DISABLED);
         session.setAutoReceiptEnabled(false);
-        when(sessionRepository.findByWithdrawalRequest(withdrawal)).thenReturn(Optional.of(session));
+        when(sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        )).thenReturn(Optional.of(session));
 
         assertThat(service.isAutoReceiptEnabled(withdrawal)).isTrue();
     }

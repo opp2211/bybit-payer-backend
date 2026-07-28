@@ -194,9 +194,11 @@ fixed hello message and continues from the existing conversation. Backend valida
 the model to persist structured facts, such as the payer bank, before moving to the next
 requirement, and blocks "did you really send it?" questions after the counterparty has attached a
 payment-proof file.
-AI sessions store the bound `bybit_order_id`; if a withdrawal returns to publication after
-order cancellation and later receives another Bybit order, the old session state is reset
-and the confirmation flow starts again for the new order.
+AI sessions are scoped to the bound `bybit_order_id`. If a withdrawal returns to publication
+after order cancellation and later receives another Bybit order, the previous session is
+completed and a separate clean session is created for the replacement order. Operator actions
+and polling resolve the session that matches the withdrawal's current order, so state and model
+history from the cancelled order cannot affect the new conversation.
 
 Before requisites are sent, the agent confirms the withdrawal conditions with the counterparty:
 

@@ -151,16 +151,22 @@ public class AiChatAgentService {
             return;
         }
 
-        Optional<AiChatSessionEntity> existingSession = sessionRepository.findByWithdrawalRequest(withdrawal);
-        if (existingSession
-                .filter(session -> StringUtils.hasText(session.getBybitOrderId()))
-                .filter(session -> Objects.equals(session.getBybitOrderId(), withdrawal.getBybitOrderId()))
-                .isPresent()) {
+        if (sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                withdrawal,
+                withdrawal.getBybitOrderId()
+        ).isPresent()) {
             return;
         }
 
-        boolean restarted = existingSession.isPresent();
-        AiChatSessionEntity session = existingSession.orElseGet(AiChatSessionEntity::new);
+        Optional<AiChatSessionEntity> previousSession = sessionRepository
+                .findFirstByWithdrawalRequestOrderByCreatedAtDescIdDesc(withdrawal);
+        previousSession.ifPresent(session -> complete(
+                session,
+                "AI chat session superseded by Bybit order " + withdrawal.getBybitOrderId()
+        ));
+
+        boolean restarted = previousSession.isPresent();
+        AiChatSessionEntity session = new AiChatSessionEntity();
         resetForOrder(session, workspace, withdrawal);
 
         if (session.isRequiredReceiptEmail() && !StringUtils.hasText(workspace.getReceiptEmail())) {
@@ -275,14 +281,14 @@ public class AiChatAgentService {
                 withdrawal.getPayerBankType(),
                 withdrawal.getWithdrawalMethod()
         );
-        return staticAutoRelease || sessionRepository.findByWithdrawalRequest(withdrawal)
+        return staticAutoRelease || findCurrentSession(withdrawal)
                 .map(AiChatSessionEntity::isAutoReceiptEnabled)
                 .orElse(staticAutoRelease);
     }
 
     @Transactional(readOnly = true)
     public AiChatAgentResponse getResponse(WithdrawalRequestEntity withdrawal) {
-        return sessionRepository.findByWithdrawalRequest(withdrawal)
+        return findCurrentSession(withdrawal)
                 .map(this::toResponse)
                 .orElseGet(AiChatAgentResponse::absent);
     }
@@ -297,7 +303,7 @@ public class AiChatAgentService {
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + withdrawalPublicId));
-        AiChatSessionEntity session = sessionRepository.findByWithdrawalRequest(withdrawal)
+        AiChatSessionEntity session = findCurrentSession(withdrawal)
                 .orElseThrow(() -> BusinessException.conflict("AI chat agent has not been started for this withdrawal"));
 
         if (session.getMode() == mode) {
@@ -359,7 +365,7 @@ public class AiChatAgentService {
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + withdrawalPublicId));
-        sessionRepository.findByWithdrawalRequest(withdrawal)
+        findCurrentSession(withdrawal)
                 .filter(session -> session.getMode() == AiChatAgentMode.ENABLED)
                 .filter(session -> session.getStatus() != AiChatSessionStatus.COMPLETED)
                 .ifPresent(session -> {
@@ -375,7 +381,7 @@ public class AiChatAgentService {
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + withdrawalPublicId));
-        AiChatSessionEntity session = sessionRepository.findByWithdrawalRequest(withdrawal)
+        AiChatSessionEntity session = findCurrentSession(withdrawal)
                 .orElseThrow(() -> BusinessException.conflict("AI chat agent has not been started for this withdrawal"));
         if (session.getMode() != AiChatAgentMode.DRY_RUN) {
             throw BusinessException.conflict("AI suggestions can be sent only in DRY_RUN mode");
@@ -408,6 +414,10 @@ public class AiChatAgentService {
         WithdrawalRequestEntity withdrawal = session.getWithdrawalRequest();
         if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
             complete(session, "Bybit order is no longer linked to withdrawal");
+            return;
+        }
+        if (!Objects.equals(session.getBybitOrderId(), withdrawal.getBybitOrderId())) {
+            complete(session, "AI chat session belongs to a previous Bybit order");
             return;
         }
         if (withdrawal.getStatus() == WithdrawalStatus.COMPLETED) {
@@ -1212,6 +1222,16 @@ public class AiChatAgentService {
             requireOperator(session, "Не удалось прочитать чат Bybit: " + safeError(exception));
             return null;
         }
+    }
+
+    private Optional<AiChatSessionEntity> findCurrentSession(WithdrawalRequestEntity withdrawal) {
+        if (StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            return sessionRepository.findByWithdrawalRequestAndBybitOrderId(
+                    withdrawal,
+                    withdrawal.getBybitOrderId()
+            );
+        }
+        return sessionRepository.findFirstByWithdrawalRequestOrderByCreatedAtDescIdDesc(withdrawal);
     }
 
     private List<ChatMessageLogResponse> newCounterpartyMessages(
