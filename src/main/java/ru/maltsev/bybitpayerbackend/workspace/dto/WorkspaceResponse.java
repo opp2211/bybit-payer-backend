@@ -15,6 +15,7 @@ public record WorkspaceResponse(
         Integer imapPort,
         String imapUsername,
         boolean enabled,
+        boolean aiChatAgentEnabled,
         Instant createdAt
 ) {
 }

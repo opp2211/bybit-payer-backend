@@ -3,7 +3,6 @@ package ru.maltsev.bybitpayerbackend.ai.model;
 public enum AiChatTrigger {
     START,
     NEW_COUNTERPARTY_MESSAGES,
-    MODE_CHANGED,
     INACTIVITY_AFTER_REQUISITES,
     PAYMENT_VERIFICATION_WITHOUT_RECEIPT,
     INVALID_RECEIPT,

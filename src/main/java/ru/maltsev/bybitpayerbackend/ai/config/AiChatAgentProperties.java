@@ -11,7 +11,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "ai.chat-agent")
 public class AiChatAgentProperties {
 
-    private boolean enabled = true;
     private Duration pollInterval = Duration.ofSeconds(5);
     private Duration inactivityReminderDelay = Duration.ofMinutes(5);
     private Duration paymentVerificationReminderDelay = Duration.ofSeconds(90);

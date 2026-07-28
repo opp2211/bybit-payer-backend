@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentModeRequest;
 import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentResponse;
 import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bybit.dto.SendChatMessageRequest;
@@ -110,21 +109,12 @@ public class WithdrawalController {
         chatService.sendMessage(workspacePublicId, withdrawalPublicId, request.message());
     }
 
-    @PostMapping("/{withdrawalPublicId}/chat-agent/mode")
-    public AiChatAgentResponse setChatAgentMode(
-            @PathVariable String workspacePublicId,
-            @PathVariable String withdrawalPublicId,
-            @Valid @RequestBody AiChatAgentModeRequest request
-    ) {
-        return aiChatAgentService.setMode(workspacePublicId, withdrawalPublicId, request.mode());
-    }
-
-    @PostMapping("/{withdrawalPublicId}/chat-agent/suggestion/send")
-    public AiChatAgentResponse sendChatAgentSuggestion(
+    @PostMapping("/{withdrawalPublicId}/chat-agent/disable")
+    public AiChatAgentResponse disableChatAgent(
             @PathVariable String workspacePublicId,
             @PathVariable String withdrawalPublicId
     ) {
-        return aiChatAgentService.sendSuggestion(workspacePublicId, withdrawalPublicId);
+        return aiChatAgentService.disable(workspacePublicId, withdrawalPublicId);
     }
 
     @GetMapping("/{withdrawalPublicId}/receipts/{receiptId}/pdf")

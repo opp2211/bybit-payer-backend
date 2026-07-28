@@ -90,7 +90,6 @@ openai:
 
 ai:
   chat-agent:
-    enabled: ${AI_CHAT_AGENT_ENABLED:true}
     poll-interval: ${AI_CHAT_AGENT_POLL_INTERVAL_SECONDS:5}s
     inactivity-reminder-delay: ${AI_CHAT_AGENT_INACTIVITY_REMINDER_SECONDS:300}s
     payment-verification-reminder-delay: ${AI_CHAT_AGENT_PAYMENT_VERIFICATION_REMINDER_SECONDS:90}s

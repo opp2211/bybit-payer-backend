@@ -20,7 +20,6 @@ import lombok.Setter;
 import org.hibernate.annotations.DynamicUpdate;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatSessionStatus;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatStep;
-import ru.maltsev.bybitpayerbackend.ai.model.AiChatAgentMode;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatAction;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
@@ -54,9 +53,8 @@ public class AiChatSessionEntity {
     @Column(name = "bybit_order_id", length = 128)
     private String bybitOrderId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "mode", nullable = false, length = 32)
-    private AiChatAgentMode mode = AiChatAgentMode.ENABLED;
+    @Column(name = "enabled", nullable = false)
+    private boolean enabled = true;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 48)
@@ -119,22 +117,6 @@ public class AiChatSessionEntity {
 
     @Column(name = "payment_verification_reminder_sent_at")
     private Instant paymentVerificationReminderSentAt;
-
-    @Column(name = "suggested_messages_json", columnDefinition = "text")
-    private String suggestedMessagesJson;
-
-    @Column(name = "suggested_reason", columnDefinition = "text")
-    private String suggestedReason;
-
-    @Column(name = "suggested_at")
-    private Instant suggestedAt;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "suggested_action", length = 48)
-    private AiChatAction suggestedAction;
-
-    @Column(name = "suggested_final_warning", columnDefinition = "text")
-    private String suggestedFinalWarning;
 
     @Column(name = "last_decision_summary", columnDefinition = "text")
     private String lastDecisionSummary;

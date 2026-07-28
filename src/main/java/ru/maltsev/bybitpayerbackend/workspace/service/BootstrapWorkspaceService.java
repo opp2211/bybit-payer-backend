@@ -108,6 +108,7 @@ public class BootstrapWorkspaceService implements ApplicationRunner {
         workspace.setImapPort(mailProperties.getPort());
         workspace.setImapUsername(StringUtils.hasText(mailProperties.getUsername()) ? mailProperties.getUsername().trim() : null);
         workspace.setEnabled(true);
+        workspace.setAiChatAgentEnabled(false);
         workspace.setCreatedAt(now);
         workspace.setUpdatedAt(now);
         secretService.storeSecrets(

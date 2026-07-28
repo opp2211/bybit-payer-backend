@@ -16,7 +16,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -29,7 +28,6 @@ import ru.maltsev.bybitpayerbackend.ai.config.AiChatAgentProperties;
 import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentResponse;
 import ru.maltsev.bybitpayerbackend.ai.entity.AiChatSessionEntity;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatAction;
-import ru.maltsev.bybitpayerbackend.ai.model.AiChatAgentMode;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatConfirmation;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatSessionStatus;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatStep;
@@ -37,7 +35,6 @@ import ru.maltsev.bybitpayerbackend.ai.model.AiChatTrigger;
 import ru.maltsev.bybitpayerbackend.ai.model.AiDecisionBankType;
 import ru.maltsev.bybitpayerbackend.ai.model.AiPaymentClaim;
 import ru.maltsev.bybitpayerbackend.ai.repository.AiChatSessionRepository;
-import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageContentResponse;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageContentType;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
@@ -88,8 +85,6 @@ public class AiChatAgentService {
             "человек слился",
             "человек не отвечает"
     );
-    private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
-    };
     private static final List<AiChatSessionStatus> ACTIVE_STATUSES = List.of(
             AiChatSessionStatus.WAITING_COUNTERPARTY,
             AiChatSessionStatus.REQUISITES_SENT,
@@ -102,7 +97,6 @@ public class AiChatAgentService {
     private final EmailReceiptCheckRepository receiptCheckRepository;
     private final WorkspaceAccessService workspaceAccessService;
     private final CurrentUserService currentUserService;
-    private final AuditService auditService;
     private final BybitChatService chatService;
     private final OpenAiChatAgentClient openAiClient;
     private final AiChatPromptProvider promptProvider;
@@ -118,7 +112,6 @@ public class AiChatAgentService {
             EmailReceiptCheckRepository receiptCheckRepository,
             WorkspaceAccessService workspaceAccessService,
             CurrentUserService currentUserService,
-            AuditService auditService,
             BybitChatService chatService,
             OpenAiChatAgentClient openAiClient,
             AiChatPromptProvider promptProvider,
@@ -132,7 +125,6 @@ public class AiChatAgentService {
         this.receiptCheckRepository = receiptCheckRepository;
         this.workspaceAccessService = workspaceAccessService;
         this.currentUserService = currentUserService;
-        this.auditService = auditService;
         this.chatService = chatService;
         this.openAiClient = openAiClient;
         this.promptProvider = promptProvider;
@@ -143,7 +135,7 @@ public class AiChatAgentService {
 
     @Transactional
     public void startForOrder(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
-        if (!properties.isEnabled()) {
+        if (!workspace.isAiChatAgentEnabled()) {
             chatService.sendRequisites(workspace, withdrawal, WithdrawalPaymentRules.isAutoReleaseEnabled(
                     withdrawal.getPayerBankType(),
                     withdrawal.getWithdrawalMethod()
@@ -225,7 +217,7 @@ public class AiChatAgentService {
         session.setWorkspace(workspace);
         session.setWithdrawalRequest(withdrawal);
         session.setBybitOrderId(withdrawal.getBybitOrderId());
-        session.setMode(AiChatAgentMode.ENABLED);
+        session.setEnabled(true);
         session.setStatus(AiChatSessionStatus.WAITING_COUNTERPARTY);
         session.setCurrentStep(initialStep(withdrawal));
         session.setAutoReceiptEnabled(WithdrawalPaymentRules.isAutoReleaseEnabled(
@@ -254,7 +246,6 @@ public class AiChatAgentService {
         session.setConversationSummary(null);
         session.setSummaryUpdatedAt(null);
         session.setLastSummarizedMessageId(null);
-        clearSuggestion(session);
         session.setCreatedAt(now);
         session.setUpdatedAt(now);
     }
@@ -262,9 +253,6 @@ public class AiChatAgentService {
     @Scheduled(fixedDelayString = "${ai.chat-agent.poll-interval:5s}")
     @Transactional
     public void pollActiveSessions() {
-        if (!properties.isEnabled()) {
-            return;
-        }
         for (AiChatSessionEntity session : sessionRepository.findByStatusInOrderByUpdatedAtAscIdAsc(ACTIVE_STATUSES)) {
             try {
                 processSession(session);
@@ -294,11 +282,7 @@ public class AiChatAgentService {
     }
 
     @Transactional
-    public AiChatAgentResponse setMode(
-            String workspacePublicId,
-            String withdrawalPublicId,
-            AiChatAgentMode mode
-    ) {
+    public AiChatAgentResponse disable(String workspacePublicId, String withdrawalPublicId) {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
@@ -306,55 +290,20 @@ public class AiChatAgentService {
         AiChatSessionEntity session = findCurrentSession(withdrawal)
                 .orElseThrow(() -> BusinessException.conflict("AI chat agent has not been started for this withdrawal"));
 
-        if (session.getMode() == mode) {
+        if (!session.isEnabled()) {
             return toResponse(session);
         }
         if (session.getStatus() == AiChatSessionStatus.COMPLETED) {
             throw BusinessException.conflict("AI chat session is already completed");
         }
-        if (mode != AiChatAgentMode.DISABLED && !openAiClient.configured()) {
-            requireOperator(session, "OpenAI API key is not configured");
-            sessionRepository.save(session);
-            return toResponse(session);
-        }
-
-        session.setMode(mode);
-        clearSuggestion(session);
-        if (session.getStatus() == AiChatSessionStatus.OPERATOR_REQUIRED && mode != AiChatAgentMode.DISABLED) {
-            session.setStatus(requisitesSent(session)
-                    ? AiChatSessionStatus.REQUISITES_SENT
-                    : AiChatSessionStatus.WAITING_COUNTERPARTY);
-            session.setOperatorRequiredAt(null);
-            session.setOperatorHandoffReason(null);
-            session.setCurrentStep(nextRequiredStep(session));
-        }
+        session.setEnabled(false);
         touch(session);
-
-        String auditAction = switch (mode) {
-            case ENABLED -> "AI_CHAT_ENABLED";
-            case DISABLED -> "AI_CHAT_DISABLED";
-            case DRY_RUN -> "AI_CHAT_DRY_RUN";
-        };
-        auditService.add(currentUser, workspace, auditAction, "WITHDRAWAL", withdrawal.getPublicId(), null);
         eventService.add(
                 withdrawal,
-                WithdrawalEventType.AI_CHAT_MODE_CHANGED,
-                "AI chat mode changed to " + mode,
+                WithdrawalEventType.AI_CHAT_DISABLED,
+                "AI chat agent disabled by operator",
                 currentUser
         );
-
-        if (mode != AiChatAgentMode.DISABLED) {
-            List<ChatMessageLogResponse> messages = readChatOrHandoff(session);
-            if (messages != null) {
-                runDecision(
-                        session,
-                        AiChatTrigger.MODE_CHANGED,
-                        "Оператор переключил режим на " + mode,
-                        messages,
-                        Set.of()
-                );
-            }
-        }
         sessionRepository.save(session);
         return toResponse(session);
     }
@@ -366,46 +315,17 @@ public class AiChatAgentService {
         WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + withdrawalPublicId));
         findCurrentSession(withdrawal)
-                .filter(session -> session.getMode() == AiChatAgentMode.ENABLED)
+                .filter(AiChatSessionEntity::isEnabled)
                 .filter(session -> session.getStatus() != AiChatSessionStatus.COMPLETED)
                 .ifPresent(session -> {
                     throw BusinessException.conflict(
-                            "AI chat mode is enabled. Select DISABLED or DRY_RUN before sending manual messages."
+                            "AI chat agent is enabled. Disable it before sending manual messages."
                     );
                 });
     }
 
-    @Transactional
-    public AiChatAgentResponse sendSuggestion(String workspacePublicId, String withdrawalPublicId) {
-        UserEntity currentUser = currentUserService.currentUser();
-        WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
-        WithdrawalRequestEntity withdrawal = withdrawalRepository.findByWorkspaceAndPublicId(workspace, withdrawalPublicId)
-                .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + withdrawalPublicId));
-        AiChatSessionEntity session = findCurrentSession(withdrawal)
-                .orElseThrow(() -> BusinessException.conflict("AI chat agent has not been started for this withdrawal"));
-        if (session.getMode() != AiChatAgentMode.DRY_RUN) {
-            throw BusinessException.conflict("AI suggestions can be sent only in DRY_RUN mode");
-        }
-
-        List<String> messages = suggestedMessages(session);
-        AiChatAction action = session.getSuggestedAction();
-        if (messages.isEmpty() || action == null) {
-            throw BusinessException.conflict("AI chat agent has no suggested messages");
-        }
-        if (!chatService.sendAgentMessages(workspace, withdrawal, messages)) {
-            throw BusinessException.conflict("Failed to send suggested AI messages");
-        }
-
-        applySentAction(session, action, session.getSuggestedFinalWarning());
-        clearSuggestion(session);
-        touch(session);
-        sessionRepository.save(session);
-        auditService.add(currentUser, workspace, "AI_CHAT_SUGGESTION_SENT", "WITHDRAWAL", withdrawal.getPublicId(), null);
-        return toResponse(session);
-    }
-
     private void processSession(AiChatSessionEntity session) {
-        if (session.getMode() == AiChatAgentMode.DISABLED
+        if (!session.isEnabled()
                 || session.getStatus() == AiChatSessionStatus.OPERATOR_REQUIRED
                 || session.getStatus() == AiChatSessionStatus.COMPLETED) {
             return;
@@ -499,7 +419,7 @@ public class AiChatAgentService {
             List<ChatMessageLogResponse> allMessages,
             Set<String> newMessageIds
     ) {
-        if (session.getMode() == AiChatAgentMode.DISABLED) {
+        if (!session.isEnabled()) {
             return;
         }
 
@@ -653,7 +573,7 @@ public class AiChatAgentService {
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("trigger", trigger.name());
         context.put("triggerDetails", triggerDetails);
-        context.put("agentMode", session.getMode().name());
+        context.put("agentEnabled", session.isEnabled());
         context.put("agentStatus", session.getStatus().name());
         context.put("currentRequirement", session.getCurrentStep().name());
         context.put("withdrawalStatus", withdrawal.getStatus().name());
@@ -962,49 +882,31 @@ public class AiChatAgentService {
 
     private void executeDecision(AiChatSessionEntity session, AiChatDecision decision) {
         if (decision.action() == AiChatAction.WAIT) {
-            clearSuggestion(session);
             return;
         }
 
-        synchronizeModeBeforeDispatch(session);
-        if (session.getMode() == AiChatAgentMode.DISABLED) {
+        synchronizeEnabledBeforeDispatch(session);
+        if (!session.isEnabled()) {
             return;
         }
         List<String> messages = outgoingMessages(session, decision);
-        if (session.getMode() == AiChatAgentMode.DRY_RUN) {
-            prepareSuggestion(session, messages, decision);
-            if (decision.action() == AiChatAction.REQUEST_CANCELLATION) {
-                session.setStatus(AiChatSessionStatus.WAITING_CANCEL);
-                session.setCurrentStep(AiChatStep.WAITING_CANCEL);
-                notifyOperator(session, "Контрагент не прошёл обязательное условие заявки");
-            } else if (decision.action() == AiChatAction.HANDOFF) {
-                markOperatorRequiredForDryRun(session, decision.handoffReason());
-            }
-            return;
-        }
-
         if (!sendNow(session, messages)) {
             return;
         }
         applySentAction(session, decision.action(), decision.finalWarning());
     }
 
-    private void synchronizeModeBeforeDispatch(AiChatSessionEntity session) {
+    private void synchronizeEnabledBeforeDispatch(AiChatSessionEntity session) {
         if (session.getId() == null) {
             return;
         }
-        String persistedMode = jdbcTemplate.queryForObject(
-                "select mode from ai_chat_sessions where id = ? for update",
-                String.class,
+        Boolean persistedEnabled = jdbcTemplate.queryForObject(
+                "select enabled from ai_chat_sessions where id = ? for update",
+                Boolean.class,
                 session.getId()
         );
-        if (!StringUtils.hasText(persistedMode)) {
-            return;
-        }
-        try {
-            session.setMode(AiChatAgentMode.valueOf(persistedMode));
-        } catch (IllegalArgumentException exception) {
-            throw new IllegalStateException("Unknown persisted AI chat mode: " + persistedMode, exception);
+        if (persistedEnabled != null) {
+            session.setEnabled(persistedEnabled);
         }
     }
 
@@ -1137,59 +1039,15 @@ public class AiChatAgentService {
         eventService.add(withdrawal, WithdrawalEventType.REQUISITES_SENT, "Requisites sent by AI chat agent");
     }
 
-    private void prepareSuggestion(
-            AiChatSessionEntity session,
-            List<String> messages,
-            AiChatDecision decision
-    ) {
-        try {
-            session.setSuggestedMessagesJson(objectMapper.writeValueAsString(messages));
-            session.setSuggestedReason(decision.summary());
-            session.setSuggestedAt(Instant.now(clock));
-            session.setSuggestedAction(decision.action());
-            session.setSuggestedFinalWarning(decision.finalWarning());
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to serialize AI chat suggestion", exception);
-        }
-    }
-
-    private void clearSuggestion(AiChatSessionEntity session) {
-        session.setSuggestedMessagesJson(null);
-        session.setSuggestedReason(null);
-        session.setSuggestedAt(null);
-        session.setSuggestedAction(null);
-        session.setSuggestedFinalWarning(null);
-    }
-
-    private List<String> suggestedMessages(AiChatSessionEntity session) {
-        if (!StringUtils.hasText(session.getSuggestedMessagesJson())) {
-            return List.of();
-        }
-        try {
-            return objectMapper.readValue(session.getSuggestedMessagesJson(), STRING_LIST_TYPE);
-        } catch (IOException exception) {
-            return List.of();
-        }
-    }
-
     private void requireOperator(AiChatSessionEntity session, String reason) {
-        session.setMode(AiChatAgentMode.DISABLED);
+        session.setEnabled(false);
         session.setStatus(AiChatSessionStatus.OPERATOR_REQUIRED);
         session.setCurrentStep(AiChatStep.OPERATOR_HANDOFF);
         session.setOperatorRequiredAt(Instant.now(clock));
         session.setOperatorHandoffReason(reason);
         session.setLastDecisionSummary(reason);
-        clearSuggestion(session);
         notifyOperator(session, reason);
         touch(session);
-    }
-
-    private void markOperatorRequiredForDryRun(AiChatSessionEntity session, String reason) {
-        session.setStatus(AiChatSessionStatus.OPERATOR_REQUIRED);
-        session.setCurrentStep(AiChatStep.OPERATOR_HANDOFF);
-        session.setOperatorRequiredAt(Instant.now(clock));
-        session.setOperatorHandoffReason(reason);
-        notifyOperator(session, reason);
     }
 
     private void notifyOperator(AiChatSessionEntity session, String reason) {
@@ -1206,11 +1064,10 @@ public class AiChatAgentService {
     }
 
     private void complete(AiChatSessionEntity session, String reason) {
-        session.setMode(AiChatAgentMode.DISABLED);
+        session.setEnabled(false);
         session.setStatus(AiChatSessionStatus.COMPLETED);
         session.setCurrentStep(AiChatStep.COMPLETED);
         session.setLastDecisionSummary(reason);
-        clearSuggestion(session);
         touch(session);
         sessionRepository.save(session);
     }
@@ -1471,17 +1328,13 @@ public class AiChatAgentService {
     private AiChatAgentResponse toResponse(AiChatSessionEntity session) {
         return new AiChatAgentResponse(
                 true,
-                session.getMode(),
-                session.getMode().getTitle(),
+                session.isEnabled(),
                 session.getStatus().name(),
                 session.getStatus().getTitle(),
                 session.getCurrentStep().name(),
                 session.getCurrentStep().getTitle(),
                 session.isAutoReceiptEnabled(),
                 session.getStatus() == AiChatSessionStatus.OPERATOR_REQUIRED,
-                suggestedMessages(session),
-                session.getSuggestedReason(),
-                session.getSuggestedAt(),
                 session.getLastDecisionSummary(),
                 session.getLastAction(),
                 session.getConversationSummary(),

@@ -173,12 +173,19 @@ start mail receipt verification and send the receipt email to chat. `SBERBANK` a
 `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
 skip mailbox polling, and must be released manually.
 
-If the AI chat agent feature is enabled globally, binding a Bybit order starts an AI session
-instead of immediately sending fixed requisite messages. The session has three operator modes:
+Each workspace stores its own AI chat agent setting. New and migrated workspaces start with the
+setting disabled. Binding a Bybit order while the setting is disabled immediately sends the fixed
+requisite messages, does not create an AI session, and does not call OpenAI. Binding while the
+setting is enabled starts an AI session instead. Enabling the workspace setting is rejected when
+`OPENAI_API_KEY` is empty.
 
-- `ENABLED`: the agent sends its messages to Bybit automatically and the manual composer is locked;
-- `DISABLED`: the agent neither answers nor prepares suggestions and the operator owns the chat;
-- `DRY_RUN`: the agent prepares one or more messages, but only the operator can send the batch.
+Changing the workspace setting only affects orders bound afterwards. Existing AI sessions keep
+working if the workspace setting is later disabled. While an order's AI session is enabled, the
+manual composer is locked. Any workspace member can disable that session once; this immediately
+unlocks manual chat and cannot be reversed. If an OpenAI response is already in progress, the
+persisted session flag is locked and checked again before dispatch so no AI message is sent after
+the disable request completes. Orders bound while the workspace setting was disabled have no AI
+session and cannot enable one later.
 
 The agent can read the withdrawal, order, complete Bybit chat, requisites, and receipt-check
 state. Its structured actions are limited to sending chat messages, requesting backend-controlled

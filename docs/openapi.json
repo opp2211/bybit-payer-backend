@@ -9,6 +9,42 @@
     "description" : "Generated server url"
   } ],
   "paths" : {
+    "/api/workspaces/{workspacePublicId}/ai-chat-agent" : {
+      "put" : {
+        "tags" : [ "workspace-controller" ],
+        "operationId" : "updateAiChatAgent",
+        "parameters" : [ {
+          "name" : "workspacePublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UpdateWorkspaceAiChatAgentRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/banks/{id}" : {
       "put" : {
         "tags" : [ "admin-bank-controller" ],
@@ -249,10 +285,10 @@
         }
       }
     },
-    "/api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}/chat-agent/suggestion/send" : {
+    "/api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}/chat-agent/disable" : {
       "post" : {
         "tags" : [ "withdrawal-controller" ],
-        "operationId" : "sendChatAgentSuggestion",
+        "operationId" : "disableChatAgent",
         "parameters" : [ {
           "name" : "workspacePublicId",
           "in" : "path",
@@ -268,49 +304,6 @@
             "type" : "string"
           }
         } ],
-        "responses" : {
-          "200" : {
-            "description" : "OK",
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/AiChatAgentResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}/chat-agent/mode" : {
-      "post" : {
-        "tags" : [ "withdrawal-controller" ],
-        "operationId" : "setChatAgentMode",
-        "parameters" : [ {
-          "name" : "workspacePublicId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        }, {
-          "name" : "withdrawalPublicId",
-          "in" : "path",
-          "required" : true,
-          "schema" : {
-            "type" : "string"
-          }
-        } ],
-        "requestBody" : {
-          "content" : {
-            "application/json" : {
-              "schema" : {
-                "$ref" : "#/components/schemas/AiChatAgentModeRequest"
-              }
-            }
-          },
-          "required" : true
-        },
         "responses" : {
           "200" : {
             "description" : "OK",
@@ -1013,6 +1006,64 @@
   },
   "components" : {
     "schemas" : {
+      "UpdateWorkspaceAiChatAgentRequest" : {
+        "type" : "object",
+        "properties" : {
+          "enabled" : {
+            "type" : "boolean"
+          }
+        },
+        "required" : [ "enabled" ]
+      },
+      "WorkspaceResponse" : {
+        "type" : "object",
+        "properties" : {
+          "publicId" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "ownerPublicId" : {
+            "type" : "string"
+          },
+          "ownerUsername" : {
+            "type" : "string"
+          },
+          "currentUserRole" : {
+            "type" : "string"
+          },
+          "bybitP2pAdId" : {
+            "type" : "string"
+          },
+          "bybitNickname" : {
+            "type" : "string"
+          },
+          "receiptEmail" : {
+            "type" : "string"
+          },
+          "imapHost" : {
+            "type" : "string"
+          },
+          "imapPort" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "imapUsername" : {
+            "type" : "string"
+          },
+          "enabled" : {
+            "type" : "boolean"
+          },
+          "aiChatAgentEnabled" : {
+            "type" : "boolean"
+          },
+          "createdAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
       "AdminBankRequest" : {
         "type" : "object",
         "properties" : {
@@ -1116,52 +1167,6 @@
           }
         },
         "required" : [ "bybitApiKey", "bybitApiSecret", "bybitP2pAdId", "imapHost", "imapPassword", "imapPort", "imapUsername", "name" ]
-      },
-      "WorkspaceResponse" : {
-        "type" : "object",
-        "properties" : {
-          "publicId" : {
-            "type" : "string"
-          },
-          "name" : {
-            "type" : "string"
-          },
-          "ownerPublicId" : {
-            "type" : "string"
-          },
-          "ownerUsername" : {
-            "type" : "string"
-          },
-          "currentUserRole" : {
-            "type" : "string"
-          },
-          "bybitP2pAdId" : {
-            "type" : "string"
-          },
-          "bybitNickname" : {
-            "type" : "string"
-          },
-          "receiptEmail" : {
-            "type" : "string"
-          },
-          "imapHost" : {
-            "type" : "string"
-          },
-          "imapPort" : {
-            "type" : "integer",
-            "format" : "int32"
-          },
-          "imapUsername" : {
-            "type" : "string"
-          },
-          "enabled" : {
-            "type" : "boolean"
-          },
-          "createdAt" : {
-            "type" : "string",
-            "format" : "date-time"
-          }
-        }
       },
       "CreateWithdrawalRequest" : {
         "type" : "object",
@@ -1382,12 +1387,8 @@
           "exists" : {
             "type" : "boolean"
           },
-          "mode" : {
-            "type" : "string",
-            "enum" : [ "ENABLED", "DISABLED", "DRY_RUN" ]
-          },
-          "modeTitle" : {
-            "type" : "string"
+          "enabled" : {
+            "type" : "boolean"
           },
           "status" : {
             "type" : "string"
@@ -1407,19 +1408,6 @@
           "operatorRequired" : {
             "type" : "boolean"
           },
-          "suggestedMessages" : {
-            "type" : "array",
-            "items" : {
-              "type" : "string"
-            }
-          },
-          "suggestedReason" : {
-            "type" : "string"
-          },
-          "suggestedAt" : {
-            "type" : "string",
-            "format" : "date-time"
-          },
           "lastDecisionSummary" : {
             "type" : "string"
           },
@@ -1438,16 +1426,6 @@
             "type" : "string"
           }
         }
-      },
-      "AiChatAgentModeRequest" : {
-        "type" : "object",
-        "properties" : {
-          "mode" : {
-            "type" : "string",
-            "enum" : [ "ENABLED", "DISABLED", "DRY_RUN" ]
-          }
-        },
-        "required" : [ "mode" ]
       },
       "WithdrawalAdvertisementPreviewResponse" : {
         "type" : "object",
