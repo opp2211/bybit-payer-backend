@@ -14,5 +14,3 @@
 `- YYYY-MM-DD - <что изменилось> -> <что сделать frontend>`
 
 ## Pending
-
-- 2026-07-28 - В `WorkspaceResponse` добавлено поле `aiChatAgentEnabled`; настройка меняется через `PUT /api/workspaces/{workspacePublicId}/ai-chat-agent` с телом `{ "enabled": boolean }`; режимы ИИ и suggestion API удалены, для заявки оставлен одноразовый `POST /api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}/chat-agent/disable`, а `AiChatAgentResponse` теперь содержит boolean `enabled` без `mode` и suggested-полей -> добавить синхронные переключатели воркспейса на экраны заявок и управления воркспейсом, заменить управление режимами в заявке на необратимое выключение.
