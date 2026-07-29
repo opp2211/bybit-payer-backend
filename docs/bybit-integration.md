@@ -160,6 +160,12 @@ toward `BYBIT_RATE_SOURCE_MIN_AD_INDEX` (7 by default) and never goes below it. 
 resets the sequence. Binding a new Bybit order rebuilds the managed ad, so a rate that had already
 moved to a lower position, for example 12, returns to position 15.
 
+Order polling commits a new order binding and its withdrawal state before dispatching chat
+messages and rebuilding the managed ad. Chat dispatch and ad synchronization therefore use
+separate transactions. An ad rebuild failure, including insufficient transferable USDT balance,
+cannot roll back a visible order binding or cause the fixed requisite messages to be sent again
+on the next poll.
+
 The effective seventh-position RUB/USDT rate includes the P2P fee in the USDT total:
 `effective rate = market rate / (1 + P2P_FEE_RATE)`. For example, `75.50 / 1.00275 = 75.29294440`.
 
