@@ -61,7 +61,9 @@ class BybitOrderWatcherTests {
         when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10")));
         when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
         when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
-        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+        when(withdrawalRepository.findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        ))
                 .thenReturn(List.of(withdrawal));
         when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -113,7 +115,9 @@ class BybitOrderWatcherTests {
 
         watcher.pollActiveOrders();
 
-        verify(withdrawalRepository, never()).findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK);
+        verify(withdrawalRepository, never()).findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        );
         verify(foreignOrderService).removeMissingOrders(Set.of("order-1"));
         verify(advertisementManager, never()).rebuildPublication();
     }
@@ -137,7 +141,9 @@ class BybitOrderWatcherTests {
         when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10", "20000.50")));
         when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
         when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
-        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+        when(withdrawalRepository.findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        ))
                 .thenReturn(List.of(withdrawal));
         when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -181,7 +187,9 @@ class BybitOrderWatcherTests {
         when(bindingRepository.findByBybitOrderId("order-1"))
                 .thenAnswer(invocation -> Optional.ofNullable(persistedBinding.get()));
         when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
-        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+        when(withdrawalRepository.findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        ))
                 .thenReturn(List.of(withdrawal));
         when(withdrawalRepository.findById(188L)).thenReturn(Optional.of(withdrawal));
         when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -250,6 +258,79 @@ class BybitOrderWatcherTests {
         assertThat(fixture.withdrawal.getCompletedAt()).isEqualTo(NOW);
         assertThat(fixture.withdrawal.isCompletionSeen()).isFalse();
         verify(fixture.advertisementManager, never()).rebuildPublication();
+    }
+
+    @Test
+    void reactivatesCompletedWithdrawalWhenOrderEntersAppeal() {
+        Fixture fixture = new Fixture(WithdrawalStatus.COMPLETED);
+        fixture.withdrawal.setCompletedAt(NOW.minusSeconds(120));
+        fixture.withdrawal.setCompletionSeen(true);
+        fixture.binding.setStatus(OrderBindingStatus.RELEASED);
+        when(fixture.gateway.fetchActiveOrders()).thenReturn(List.of(order("30")));
+        when(fixture.bindingRepository.findByBybitOrderId("order-1"))
+                .thenReturn(Optional.of(fixture.binding));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.ACTIVE);
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.APPEAL);
+        assertThat(fixture.withdrawal.getCompletedAt()).isNull();
+        assertThat(fixture.withdrawal.isCompletionSeen()).isFalse();
+        assertThat(fixture.withdrawal.isAttentionRequired()).isTrue();
+        assertThat(fixture.withdrawal.getLastWarning()).contains("Bybit");
+    }
+
+    @Test
+    void mapsBybitObjectioningStatusToAppeal() {
+        Fixture fixture = new Fixture(WithdrawalStatus.COMPLETED);
+        fixture.binding.setStatus(OrderBindingStatus.RELEASED);
+        when(fixture.gateway.fetchActiveOrders()).thenReturn(List.of(order("100")));
+        when(fixture.bindingRepository.findByBybitOrderId("order-1"))
+                .thenReturn(Optional.of(fixture.binding));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.APPEAL);
+    }
+
+    @Test
+    void separatesWaitingForUserObjectionFromAppeal() {
+        Fixture fixture = new Fixture(WithdrawalStatus.APPEAL);
+        when(fixture.gateway.fetchActiveOrders()).thenReturn(List.of(order("110")));
+        when(fixture.bindingRepository.findByBybitOrderId("order-1"))
+                .thenReturn(Optional.of(fixture.binding));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.OBJECTION_REQUIRED);
+        assertThat(fixture.withdrawal.getLastWarning()).contains("Bybit");
+    }
+
+    @Test
+    void cancelsWithdrawalWhenAppealEndsWithCancellation() {
+        Fixture fixture = new Fixture(WithdrawalStatus.APPEAL);
+        when(fixture.gateway.fetchOrder("order-1")).thenReturn(Optional.of(order("40")));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.CANCELLED);
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.CANCELLED);
+        assertThat(fixture.withdrawal.getCancelledAt()).isEqualTo(NOW);
+        assertThat(fixture.withdrawal.getCompletedAt()).isNull();
+        assertThat(fixture.withdrawal.getBybitOrderId()).isEqualTo("order-1");
+        verify(fixture.advertisementManager, never()).rebuildPublication();
+    }
+
+    @Test
+    void completesWithdrawalWhenAppealEndsWithCompletion() {
+        Fixture fixture = new Fixture(WithdrawalStatus.OBJECTION_REQUIRED);
+        when(fixture.gateway.fetchOrder("order-1")).thenReturn(Optional.of(order("50")));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.RELEASED);
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
+        assertThat(fixture.withdrawal.getCompletedAt()).isEqualTo(NOW);
     }
 
     @Test

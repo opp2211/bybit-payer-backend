@@ -26,6 +26,7 @@ BYBIT_RECV_WINDOW_MS=10000
 BYBIT_ORDER_SOURCE_SIDE=SELL
 BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
+WITHDRAWAL_CANCELLATION_GRACE_PERIOD_SECONDS=5
 ```
 
 `BYBIT_API_KEY`, `BYBIT_API_SECRET`, and `BYBIT_P2P_AD_ID` are no longer the
@@ -173,6 +174,29 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
+
+The active-order endpoint is read page by page (up to 30 orders per page) before
+matching starts, so orders beyond the first page are not skipped.
+
+Dispute statuses are synchronized even when the binding was already marked as released:
+
+- status `30` (appealing) and `100` (objectioning) move the withdrawal to `APPEAL`;
+- status `110` (waiting for the user to raise an objection) moves it to the separate
+  `OBJECTION_REQUIRED` status;
+- a disputed order ending in `40`, `70`, or `80` moves the withdrawal to `CANCELLED`;
+- a disputed order ending in `50` moves the withdrawal back to `COMPLETED`.
+
+`APPEAL` and `OBJECTION_REQUIRED` are active withdrawal statuses and require operator
+attention, so a previously completed withdrawal becomes visible in the active list again.
+
+Cancelling an `IN_WORK` withdrawal uses a safety window to cover the normal order-polling
+race. The withdrawal first moves to `CANCELLATION_PENDING`, the managed ad is rebuilt
+without it (or unpublished if no other withdrawal remains), and the application waits
+`WITHDRAWAL_CANCELLATION_GRACE_PERIOD_SECONDS` (5 seconds by default). It then performs
+an immediate full active-order poll. If a late order is found, the normal binding flow
+attaches it to the withdrawal and cancellation is rejected; otherwise the withdrawal is
+cancelled. An order already bound to another withdrawal never blocks this cancellation
+merely because its RUB amount is the same.
 
 When an order is marked paid, only `TBANK_AUTO` withdrawals with `SBP` or `CARD_NUMBER`
 start mail receipt verification and send the receipt email to chat. `SBERBANK` and

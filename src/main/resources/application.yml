@@ -78,6 +78,7 @@ business:
   chat-read-cache-ttl: ${CHAT_READ_CACHE_TTL_SECONDS:5}s
   chat-read-cache-max-idle: ${CHAT_READ_CACHE_MAX_IDLE_SECONDS:60}s
   chat-read-cache-max-entries: ${CHAT_READ_CACHE_MAX_ENTRIES:200}
+  withdrawal-cancellation-grace-period: ${WITHDRAWAL_CANCELLATION_GRACE_PERIOD_SECONDS:5}s
   usdt-quantity-scale: ${USDT_QUANTITY_SCALE:4}
   max-published-amounts: ${MAX_PUBLISHED_AMOUNTS:10}
   p2p-fee-rate: ${P2P_FEE_RATE:0.00275}

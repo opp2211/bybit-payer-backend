@@ -116,6 +116,64 @@ class HttpBybitGatewayTests {
     }
 
     @Test
+    void readsAllPagesOfActiveOrders() throws Exception {
+        AtomicInteger orderRequests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v5/p2p/order/pending/simplifyList", exchange -> {
+            orderRequests.incrementAndGet();
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            int page = request.path("page").asInt();
+            if (page == 1) {
+                respond(exchange, """
+                        {
+                          "retCode": 0,
+                          "retMsg": "OK",
+                          "result": {
+                            "count": 3,
+                            "items": [
+                              {"id":"order-1","amount":"1000","status":20},
+                              {"id":"order-2","amount":"2000","status":30}
+                            ]
+                          }
+                        }
+                        """);
+            } else {
+                respond(exchange, """
+                        {
+                          "retCode": 0,
+                          "retMsg": "OK",
+                          "result": {
+                            "count": 3,
+                            "items": [
+                              {"id":"order-3","amount":"3000","status":110}
+                            ]
+                          }
+                        }
+                        """);
+            }
+        });
+        server.start();
+
+        try {
+            BybitProperties properties = properties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setApiKey("test-api-key");
+            properties.setApiSecret("test-api-secret");
+            properties.setP2pAdId("ad-123");
+            properties.setOrderPageSize(2);
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+
+            List<BybitP2pOrder> orders = gateway.fetchActiveOrders();
+
+            assertThat(orderRequests).hasValue(2);
+            assertThat(orders).extracting(BybitP2pOrder::bybitOrderId)
+                    .containsExactly("order-1", "order-2", "order-3");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void readsTerminalOrderStatusAndUsdtAmounts() throws Exception {
         Instant fixedInstant = Instant.ofEpochMilli(1741769463827L);
         AtomicReference<String> timestampHeader = new AtomicReference<>();

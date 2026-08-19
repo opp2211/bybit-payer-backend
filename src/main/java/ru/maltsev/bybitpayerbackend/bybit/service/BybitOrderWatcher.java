@@ -169,7 +169,7 @@ public class BybitOrderWatcher {
         }
     }
 
-    private void pollActiveOrders(WorkspaceEntity workspace) {
+    public void pollActiveOrders(WorkspaceEntity workspace) {
         bybitCredentialsContext.runWith(
                 workspaceSecretService.bybitCredentials(workspace),
                 () -> {
@@ -199,7 +199,7 @@ public class BybitOrderWatcher {
     private OrderProcessingResult processOrder(WorkspaceEntity workspace, BybitP2pOrder order) {
         return bindingRepository.findByWorkspaceAndBybitOrderId(workspace, order.bybitOrderId())
                 .map(binding -> OrderProcessingResult.publicationChanged(
-                        binding.getStatus() == OrderBindingStatus.ACTIVE && syncBoundOrder(binding, order)
+                        syncKnownOrder(binding, order)
                 ))
                 .orElseGet(() -> bindOrMarkForeign(workspace, order));
     }
@@ -207,15 +207,28 @@ public class BybitOrderWatcher {
     private OrderProcessingResult processOrderLegacy(BybitP2pOrder order) {
         return bindingRepository.findByBybitOrderId(order.bybitOrderId())
                 .map(binding -> OrderProcessingResult.publicationChanged(
-                        binding.getStatus() == OrderBindingStatus.ACTIVE && syncBoundOrder(binding, order)
+                        syncKnownOrder(binding, order)
                 ))
                 .orElseGet(() -> bindOrMarkForeignLegacy(order));
+    }
+
+    private boolean syncKnownOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
+        if (order.disputed()) {
+            syncDisputedOrder(binding, order);
+            return false;
+        }
+        return binding.getStatus() == OrderBindingStatus.ACTIVE && syncBoundOrder(binding, order);
     }
 
     private boolean syncBoundOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
         WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
         updateOrderAmounts(withdrawal, order);
         if (order.cancelled()) {
+            if (withdrawal.getStatus() == WithdrawalStatus.APPEAL
+                    || withdrawal.getStatus() == WithdrawalStatus.OBJECTION_REQUIRED) {
+                cancelAppealedWithdrawal(binding, withdrawal, order);
+                return false;
+            }
             return returnWithdrawalToWork(binding, withdrawal, order);
         }
         if (order.finished()) {
@@ -258,13 +271,60 @@ public class BybitOrderWatcher {
         return false;
     }
 
+    private void syncDisputedOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
+        WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
+        WithdrawalStatus nextStatus = order.objectionRequired()
+                ? WithdrawalStatus.OBJECTION_REQUIRED
+                : WithdrawalStatus.APPEAL;
+        boolean statusChanged = withdrawal.getStatus() != nextStatus;
+
+        binding.setStatus(OrderBindingStatus.ACTIVE);
+        bindingRepository.save(binding);
+        updateOrderAmounts(withdrawal, order);
+        withdrawal.setStatus(nextStatus);
+        withdrawal.setCompletedAt(null);
+        withdrawal.setCancelledAt(null);
+        withdrawal.setCompletionSeen(false);
+        withdrawal.setAttentionRequired(true);
+        withdrawal.setLastError(null);
+        withdrawal.setLastWarning(order.objectionRequired()
+                ? "Bybit вынес решение. Проверьте его и при необходимости подайте возражение"
+                : "По Bybit-ордеру открыта апелляция");
+        withdrawalRepository.save(withdrawal);
+
+        if (statusChanged) {
+            WithdrawalEventType eventType = order.objectionRequired()
+                    ? WithdrawalEventType.ORDER_OBJECTION_REQUIRED
+                    : WithdrawalEventType.ORDER_APPEAL_STARTED;
+            String message = order.objectionRequired()
+                    ? "Bybit issued an appeal decision and is waiting for a possible objection"
+                    : "Bybit order entered appeal processing";
+            eventService.add(
+                    withdrawal,
+                    eventType,
+                    message,
+                    "{\"status\":\"" + order.status() + "\"}"
+            );
+        }
+        log.warn(
+                "Bybit order dispute synchronized: orderId={}, withdrawalId={}, bybitStatus={}, withdrawalStatus={}",
+                order.bybitOrderId(),
+                withdrawal.getId(),
+                order.status(),
+                nextStatus
+        );
+    }
+
     private OrderProcessingResult bindOrMarkForeign(WorkspaceEntity workspace, BybitP2pOrder order) {
         if (foreignOrderService.refreshIfTracked(workspace, order)) {
             return OrderProcessingResult.unchanged();
         }
 
         List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
-                .findByWorkspaceAndStatusOrderByCreatedAtAscIdAsc(workspace, WithdrawalStatus.IN_WORK)
+                .findForBindingByWorkspaceAndStatusInOrderByCreatedAtAscIdAsc(
+                        workspace,
+                        WithdrawalStatus.ORDER_BINDABLE_STATUSES
+                )
                 .stream()
                 .filter(withdrawal -> orderAmountMatches(withdrawal, order.amountRub()))
                 .toList();
@@ -309,7 +369,7 @@ public class BybitOrderWatcher {
         }
 
         List<WithdrawalRequestEntity> matchingWithdrawals = withdrawalRepository
-                .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK)
+                .findForBindingByStatusInOrderByCreatedAtAscIdAsc(WithdrawalStatus.ORDER_BINDABLE_STATUSES)
                 .stream()
                 .filter(withdrawal -> orderAmountMatches(withdrawal, order.amountRub()))
                 .toList();
@@ -469,7 +529,7 @@ public class BybitOrderWatcher {
                         workspaceSecretService.bybitCredentials(workspace),
                         () -> bybitGateway.fetchOrder(binding.getBybitOrderId())
                 )
-                        .map(order -> syncBoundOrder(binding, order))
+                        .map(order -> syncKnownOrder(binding, order))
                         .orElse(false) || publicationChanged;
             } catch (Exception exception) {
                 WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
@@ -495,7 +555,7 @@ public class BybitOrderWatcher {
             }
             try {
                 publicationChanged = bybitGateway.fetchOrder(binding.getBybitOrderId())
-                        .map(order -> syncBoundOrder(binding, order))
+                        .map(order -> syncKnownOrder(binding, order))
                         .orElse(false) || publicationChanged;
             } catch (Exception exception) {
                 WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
@@ -550,6 +610,37 @@ public class BybitOrderWatcher {
         return true;
     }
 
+    private void cancelAppealedWithdrawal(
+            BybitOrderBindingEntity binding,
+            WithdrawalRequestEntity withdrawal,
+            BybitP2pOrder order
+    ) {
+        binding.setStatus(OrderBindingStatus.CANCELLED);
+        bindingRepository.save(binding);
+
+        withdrawal.setStatus(WithdrawalStatus.CANCELLED);
+        withdrawal.setCancelledAt(Instant.now(clock));
+        withdrawal.setCompletedAt(null);
+        withdrawal.setCompletionSeen(false);
+        withdrawal.setQueuePosition(null);
+        withdrawal.setAttentionRequired(false);
+        withdrawal.setLastError(null);
+        withdrawal.setLastWarning(null);
+        withdrawalRepository.save(withdrawal);
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.ORDER_CANCELLED,
+                "Bybit appeal resolved with order cancellation",
+                "{\"status\":\"" + order.status() + "\"}"
+        );
+        log.info(
+                "Appealed Bybit order cancelled: orderId={}, withdrawalId={}, status={}",
+                binding.getBybitOrderId(),
+                withdrawal.getId(),
+                order.status()
+        );
+    }
+
     private void completeWithdrawal(
             BybitOrderBindingEntity binding,
             WithdrawalRequestEntity withdrawal,
@@ -560,6 +651,7 @@ public class BybitOrderWatcher {
 
         withdrawal.setStatus(WithdrawalStatus.COMPLETED);
         withdrawal.setCompletedAt(Instant.now(clock));
+        withdrawal.setCancelledAt(null);
         withdrawal.setCompletionSeen(false);
         withdrawal.setAttentionRequired(false);
         withdrawal.setLastError(null);

@@ -16,6 +16,7 @@ public class BusinessProperties {
     private Duration chatMessageDelay = Duration.ofMillis(500);
     private Duration chatReadCacheTtl = Duration.ofSeconds(5);
     private Duration chatReadCacheMaxIdle = Duration.ofSeconds(60);
+    private Duration withdrawalCancellationGracePeriod = Duration.ofSeconds(5);
     private int chatReadCacheMaxEntries = 200;
     private int usdtQuantityScale = 4;
     private int maxPublishedAmounts = 10;

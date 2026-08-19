@@ -158,30 +158,38 @@ public class HttpBybitGateway implements BybitGateway {
 
     @Override
     public List<BybitP2pOrder> fetchActiveOrders() {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("status", null);
-        request.put("beginTime", null);
-        request.put("endTime", null);
-        request.put("tokenId", properties.getBalanceCoin());
-        request.put("side", orderSideCode(properties.getOrderSourceSide()));
-        request.put("page", 1);
-        request.put("size", Math.min(Math.max(1, properties.getOrderPageSize()), 30));
+        int pageSize = Math.min(Math.max(1, properties.getOrderPageSize()), 30);
+        Map<String, BybitP2pOrder> ordersById = new LinkedHashMap<>();
+        for (int page = 1; page <= 100; page++) {
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("status", null);
+            request.put("beginTime", null);
+            request.put("endTime", null);
+            request.put("tokenId", properties.getBalanceCoin());
+            request.put("side", orderSideCode(properties.getOrderSourceSide()));
+            request.put("page", page);
+            request.put("size", pageSize);
 
-        JsonNode result = post("/v5/p2p/order/pending/simplifyList", request);
-        JsonNode items = result.path("items");
-        if (!items.isArray()) {
-            return List.of();
-        }
-
-        List<BybitP2pOrder> orders = new ArrayList<>();
-        for (JsonNode item : items) {
-            String orderId = item.path("id").asText();
-            if (!StringUtils.hasText(orderId)) {
-                continue;
+            JsonNode result = post("/v5/p2p/order/pending/simplifyList", request);
+            JsonNode items = result.path("items");
+            if (!items.isArray() || items.isEmpty()) {
+                break;
             }
-            orders.add(toOrder(item));
+
+            for (JsonNode item : items) {
+                String orderId = item.path("id").asText();
+                if (!StringUtils.hasText(orderId)) {
+                    continue;
+                }
+                ordersById.putIfAbsent(orderId, toOrder(item));
+            }
+
+            int totalCount = result.path("count").asInt(-1);
+            if (items.size() < pageSize || totalCount >= 0 && ordersById.size() >= totalCount) {
+                break;
+            }
         }
-        return List.copyOf(orders);
+        return List.copyOf(ordersById.values());
     }
 
     @Override

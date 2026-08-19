@@ -7,6 +7,11 @@ import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import jakarta.persistence.LockModeType;
 
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
@@ -17,6 +22,18 @@ public interface WithdrawalRequestRepository extends JpaRepository<WithdrawalReq
     boolean existsByPublicId(String publicId);
 
     Optional<WithdrawalRequestEntity> findByWorkspaceAndPublicId(WorkspaceEntity workspace, String publicId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select withdrawal
+            from WithdrawalRequestEntity withdrawal
+            where withdrawal.workspace = :workspace
+              and withdrawal.publicId = :publicId
+            """)
+    Optional<WithdrawalRequestEntity> findForUpdateByWorkspaceAndPublicId(
+            @Param("workspace") WorkspaceEntity workspace,
+            @Param("publicId") String publicId
+    );
 
     List<WithdrawalRequestEntity> findByWorkspaceAndStatusInOrderByCreatedAtAscIdAsc(
             WorkspaceEntity workspace,
@@ -36,6 +53,19 @@ public interface WithdrawalRequestRepository extends JpaRepository<WithdrawalReq
     List<WithdrawalRequestEntity> findByWorkspaceAndStatusOrderByCreatedAtAscIdAsc(
             WorkspaceEntity workspace,
             WithdrawalStatus status
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select withdrawal
+            from WithdrawalRequestEntity withdrawal
+            where withdrawal.workspace = :workspace
+              and withdrawal.status in :statuses
+            order by withdrawal.createdAt asc, withdrawal.id asc
+            """)
+    List<WithdrawalRequestEntity> findForBindingByWorkspaceAndStatusInOrderByCreatedAtAscIdAsc(
+            @Param("workspace") WorkspaceEntity workspace,
+            @Param("statuses") Collection<WithdrawalStatus> statuses
     );
 
     List<WithdrawalRequestEntity> findByWorkspaceAndStatusAndAmountRubOrderByCreatedAtAscIdAsc(
@@ -63,6 +93,17 @@ public interface WithdrawalRequestRepository extends JpaRepository<WithdrawalReq
     List<WithdrawalRequestEntity> findByStatusOrderByCompletedAtDescIdDesc(WithdrawalStatus status);
 
     List<WithdrawalRequestEntity> findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select withdrawal
+            from WithdrawalRequestEntity withdrawal
+            where withdrawal.status in :statuses
+            order by withdrawal.createdAt asc, withdrawal.id asc
+            """)
+    List<WithdrawalRequestEntity> findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+            @Param("statuses") Collection<WithdrawalStatus> statuses
+    );
 
     List<WithdrawalRequestEntity> findByStatusAndAmountRubOrderByCreatedAtAscIdAsc(
             WithdrawalStatus status,
