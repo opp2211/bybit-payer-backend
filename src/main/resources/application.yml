@@ -75,7 +75,8 @@ bybit:
 business:
   attention-timeout: ${ATTENTION_TIMEOUT_SECONDS:300}s
   chat-message-delay: ${CHAT_MESSAGE_DELAY_MS:1000}ms
-  chat-read-cache-ttl: ${CHAT_READ_CACHE_TTL_SECONDS:5}s
+  chat-read-cache-ttl: ${CHAT_READ_CACHE_TTL_SECONDS:15}s
+  chat-read-failure-backoff: ${CHAT_READ_FAILURE_BACKOFF_SECONDS:60}s
   chat-read-cache-max-idle: ${CHAT_READ_CACHE_MAX_IDLE_SECONDS:60}s
   chat-read-cache-max-entries: ${CHAT_READ_CACHE_MAX_ENTRIES:200}
   withdrawal-cancellation-grace-period: ${WITHDRAWAL_CANCELLATION_GRACE_PERIOD_SECONDS:5}s

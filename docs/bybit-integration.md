@@ -106,11 +106,14 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/item/update` — update/relist managed ad.
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
-- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
+- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order and obtain
+  `targetUserMaskId` when a chat session must be created.
 - `POST /v5/p2p/user/personal/info` — read the workspace Bybit `userId`, `accountId`,
   and `nickName` used for chat author classification.
-- `POST /v5/p2p/order/message/send` — send requisites and operator messages to order chat.
-- `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
+- `POST /v5/p2p/chat/session/getSessionId` — obtain the encrypted chat `sessionId`; the gateway caches
+  it per API key/order for the process lifetime.
+- `POST /v5/p2p/chat/message/send_v1` — send requisites and operator messages to order chat.
+- `POST /v5/p2p/chat/message/listpage_v1` — read the full order chat history shown in withdrawal details.
   The gateway reads pages of up to 30 messages until a page returns fewer messages or
   `BYBIT_CHAT_MESSAGE_MAX_PAGES` is reached.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
@@ -285,21 +288,25 @@ as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
 
 Raw chat history is not persisted locally; only AI session state and the compact conversation
 summary are stored. Outgoing messages are sent directly to
-`/v5/p2p/order/message/send`, and withdrawal details read chat history from
-`/v5/p2p/order/message/listpage` through `BybitChatService`. The service keeps a
-short in-memory cache per workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (5 seconds
-by default), removes entries idle longer than `CHAT_READ_CACHE_MAX_IDLE_SECONDS`, and
-caps the cache with `CHAT_READ_CACHE_MAX_ENTRIES`. If Bybit chat history is unavailable
-and no fresh cache entry can be used, the API returns an error.
+`/v5/p2p/chat/message/send_v1`, and withdrawal details read chat history from
+`/v5/p2p/chat/message/listpage_v1` through `BybitChatService`. A chat `sessionId` is resolved once
+from the order's `targetUserMaskId` and reused. The service keeps an in-memory cache per
+workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (15 seconds by default), removes entries idle
+longer than `CHAT_READ_CACHE_MAX_IDLE_SECONDS`, and caps the cache with
+`CHAT_READ_CACHE_MAX_ENTRIES`. A failed chat read starts a
+`CHAT_READ_FAILURE_BACKOFF_SECONDS` cooldown (60 seconds by default). During the cooldown no
+Bybit chat request is made and withdrawal details use stale cached chat or an empty list, so a
+chat outage does not make the whole details endpoint unavailable.
 
 The UI chat response is formatted by the backend. `SYS_ORDER_CARD` (`msgType=11`) messages
 are hidden. `msgType=0`, `msgType=103`, `roleType=sys`, and `roleType=alarm` are shown as
 system messages; `msgType=5` or `msgType=6` are shown as support. Text content uses
 `content.type=TEXT`; attachments use `IMAGE`, `PDF`, or `VIDEO`, and relative Bybit file
 paths are resolved against `BYBIT_CHAT_FILE_BASE_URL` (`https://api2.bybit.com` by default).
-Workspace Bybit `userId`/`accountId` classify own messages, and `bybit_bot_chat_messages`
-stores `msgUuid` values sent by automation so the frontend can distinguish bot messages
-from manual operator messages.
+Workspace Bybit `userId`/`accountId` classify own messages from legacy-shaped data; the new chat
+API only returns the sender nickname, which is used as a fallback. `bybit_bot_chat_messages`
+stores locally generated `msgUuid` values so freshly appended automation messages can be
+distinguished from manual operator messages while they remain in the local cache.
 
 Backend-appended copyable requisite messages depend on withdrawal method:
 

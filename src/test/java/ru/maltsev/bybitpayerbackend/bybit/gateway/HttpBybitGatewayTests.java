@@ -217,48 +217,62 @@ class HttpBybitGatewayTests {
     }
 
     @Test
-    void readsOrderChatMessages() throws Exception {
+    void readsOrderChatMessagesViaNewApiAndReusesSessionForSend() throws Exception {
+        AtomicInteger orderRequests = new AtomicInteger();
+        AtomicInteger sessionRequests = new AtomicInteger();
         AtomicInteger chatRequests = new AtomicInteger();
+        AtomicReference<JsonNode> sendPayload = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v5/p2p/order/message/listpage", exchange -> {
+        server.createContext("/v5/p2p/order/info", exchange -> {
+            orderRequests.incrementAndGet();
+            respond(exchange, """
+                    {
+                      "retCode": 0,
+                      "retMsg": "OK",
+                      "result": {
+                        "id": "order-123",
+                        "targetUserMaskId": "target-user-mask"
+                      }
+                    }
+                    """);
+        });
+        server.createContext("/v5/p2p/chat/session/getSessionId", exchange -> {
+            sessionRequests.incrementAndGet();
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            assertThat(request.path("userMaskId").asText()).isEqualTo("target-user-mask");
+            respond(exchange, """
+                    {
+                      "ret_code": 0,
+                      "ret_msg": "",
+                      "result": {"sessionId":"encrypted-session-id"}
+                    }
+                    """);
+        });
+        server.createContext("/v5/p2p/chat/message/listpage_v1", exchange -> {
             chatRequests.incrementAndGet();
-            String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            if (requestBody.contains("\"currentPage\":\"1\"")) {
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            assertThat(request.path("sessionId").asText()).isEqualTo("encrypted-session-id");
+            assertThat(request.path("limit").asInt()).isEqualTo(2);
+            if (request.path("lastId").asLong() == 0L) {
                 respond(exchange, """
                 {
                   "ret_code": 0,
                   "ret_msg": "SUCCESS",
                   "result": {
-                    "result": [
-                      {
-                        "id": "3000835348",
-                        "message": "Здравствуйте",
-                        "msgType": 1,
-                        "createDate": "1741763625000",
-                        "contentType": "str",
-                        "userId": "290118",
-                        "accountId": "290120",
-                        "orderId": "order-123",
-                        "msgUuid": "",
-                        "nickName": "Покупатель",
-                        "roleType": "user",
-                        "msgCode": 0,
-                        "fileName": ""
-                      },
+                    "messages": [
                       {
                         "id": "3000835349",
-                        "message": "System",
-                        "msgType": 0,
+                        "message": "{\\\"content\\\":\\\"System\\\",\\\"msgType\\\":\\\"0\\\",\\\"msgCode\\\":\\\"1011\\\",\\\"fileName\\\":\\\"\\\"}",
+                        "createDate": "1741763625000",
+                        "contentType": "str",
+                        "sendUserNickName": "Bybit"
+                      },
+                      {
+                        "id": "3000835348",
+                        "message": "{\\\"content\\\":\\\"Здравствуйте\\\",\\\"msgType\\\":\\\"1\\\",\\\"msgCode\\\":\\\"0\\\",\\\"fileName\\\":\\\"\\\"}",
                         "createDate": "1741763626000",
                         "contentType": "str",
-                        "userId": "seller-user",
-                        "accountId": "seller-account",
-                        "orderId": "order-123",
-                        "msgUuid": "system-uuid",
-                        "nickName": "Seller",
-                        "roleType": "sys",
-                        "msgCode": 1011,
-                        "fileName": ""
+                        "sendUserNickName": "Покупатель"
                       }
                     ]
                   }
@@ -270,27 +284,25 @@ class HttpBybitGatewayTests {
                   "ret_code": 0,
                   "ret_msg": "SUCCESS",
                   "result": {
-                    "result": [
+                    "messages": [
                       {
-                        "id": "3000835350",
-                        "message": "/fiat/p2p/oss/showObj/file.jpg",
-                        "msgType": 2,
+                        "id": "3000835347",
+                        "message": "{\\\"content\\\":\\\"/fiat/p2p/oss/showObj/file.jpg\\\",\\\"msgType\\\":\\\"2\\\",\\\"msgCode\\\":\\\"0\\\",\\\"fileName\\\":\\\"file.jpg\\\"}",
                         "createDate": "1741763627000",
                         "contentType": "pic",
-                        "userId": "290118",
-                        "accountId": "290120",
-                        "orderId": "order-123",
-                        "msgUuid": "",
-                        "nickName": "Покупатель",
-                        "roleType": "user",
-                        "msgCode": 0,
-                        "fileName": "file.jpg"
+                        "sendUserNickName": "Покупатель"
                       }
                     ]
                   }
                 }
                 """);
             }
+        });
+        server.createContext("/v5/p2p/chat/message/send_v1", exchange -> {
+            sendPayload.set(objectMapper.readTree(exchange.getRequestBody()));
+            respond(exchange, """
+                    {"ret_code":0,"ret_msg":"","result":{}}
+                    """);
         });
         server.start();
 
@@ -304,15 +316,22 @@ class HttpBybitGatewayTests {
             HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
 
             List<BybitChatMessage> messages = gateway.fetchChatMessages("order-123");
+            gateway.sendChatMessage("order-123", "unused-message-uuid", "Добрый день");
 
+            assertThat(orderRequests).hasValue(1);
+            assertThat(sessionRequests).hasValue(1);
             assertThat(chatRequests).hasValue(2);
             assertThat(messages).hasSize(3);
-            assertThat(messages.getFirst().message()).isEqualTo("Здравствуйте");
-            assertThat(messages.getFirst().accountId()).isEqualTo("290120");
-            assertThat(messages.getFirst().nickname()).isEqualTo("Покупатель");
+            assertThat(messages.getFirst().message()).isEqualTo("System");
+            assertThat(messages.getFirst().messageCode()).isEqualTo(1011);
+            assertThat(messages.get(1).message()).isEqualTo("Здравствуйте");
+            assertThat(messages.get(1).nickname()).isEqualTo("Покупатель");
             assertThat(messages.getFirst().createdAt()).isEqualTo(Instant.ofEpochMilli(1741763625000L));
-            assertThat(messages.get(1).messageCode()).isEqualTo(1011);
             assertThat(messages.get(2).fileName()).isEqualTo("file.jpg");
+            assertThat(sendPayload.get().path("sessionId").asText()).isEqualTo("encrypted-session-id");
+            assertThat(sendPayload.get().path("orderId").asText()).isEqualTo("order-123");
+            assertThat(sendPayload.get().path("message").asText()).isEqualTo("Добрый день");
+            assertThat(sendPayload.get().has("msgUuid")).isFalse();
         } finally {
             server.stop(0);
         }

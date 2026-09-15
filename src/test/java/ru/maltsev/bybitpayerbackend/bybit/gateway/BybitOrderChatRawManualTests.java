@@ -45,24 +45,44 @@ class BybitOrderChatRawManualTests {
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
 
+        JsonNode order = successfulResult(post(
+                httpClient,
+                baseUrl,
+                "/v5/p2p/order/info",
+                Map.of("orderId", orderId),
+                apiKey,
+                apiSecret,
+                recvWindow
+        ));
+        String targetUserMaskId = order.path("targetUserMaskId").asText();
+        assertThat(targetUserMaskId).as("Order targetUserMaskId").isNotBlank();
+
+        JsonNode session = successfulResult(post(
+                httpClient,
+                baseUrl,
+                "/v5/p2p/chat/session/getSessionId",
+                Map.of("userMaskId", targetUserMaskId),
+                apiKey,
+                apiSecret,
+                recvWindow
+        ));
+        String sessionId = session.path("sessionId").asText();
+        assertThat(sessionId).as("Chat sessionId").isNotBlank();
+
+        long lastId = 0L;
         for (int page = 1; page <= maxPages; page++) {
-            String bodyJson = requestBody(orderId, page, pageSize);
-            long timestamp = System.currentTimeMillis();
-            String signature = hmacSha256(timestamp + apiKey + recvWindow + bodyJson, apiSecret);
-
-            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/v5/p2p/order/message/listpage"))
-                    .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json")
-                    .header("X-BAPI-API-KEY", apiKey)
-                    .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
-                    .header("X-BAPI-RECV-WINDOW", recvWindow)
-                    .header("X-BAPI-SIGN", signature)
-                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("lastId", lastId);
+            body.put("limit", pageSize);
+            body.put("sessionId", sessionId);
+            HttpResponse<String> response = post(
+                    httpClient,
+                    baseUrl,
+                    "/v5/p2p/chat/message/listpage_v1",
+                    body,
+                    apiKey,
+                    apiSecret,
+                    recvWindow
             );
 
             System.out.printf(
@@ -81,15 +101,40 @@ class BybitOrderChatRawManualTests {
             if (messagesOnPage < pageSize) {
                 break;
             }
+            JsonNode messages = objectMapper.readTree(response.body()).path("result").path("messages");
+            lastId = messages.path(messages.size() - 1).path("id").asLong();
+            assertThat(lastId).as("Chat pagination lastId").isPositive();
         }
     }
 
-    private String requestBody(String orderId, int page, int pageSize) throws Exception {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("orderId", orderId);
-        request.put("currentPage", String.valueOf(page));
-        request.put("size", String.valueOf(pageSize));
-        return objectMapper.writeValueAsString(request);
+    private HttpResponse<String> post(
+            HttpClient httpClient,
+            String baseUrl,
+            String path,
+            Map<String, Object> body,
+            String apiKey,
+            String apiSecret,
+            String recvWindow
+    ) throws Exception {
+        String bodyJson = objectMapper.writeValueAsString(body);
+        long timestamp = System.currentTimeMillis();
+        String signature = hmacSha256(timestamp + apiKey + recvWindow + bodyJson, apiSecret);
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .header("X-BAPI-API-KEY", apiKey)
+                .header("X-BAPI-TIMESTAMP", String.valueOf(timestamp))
+                .header("X-BAPI-RECV-WINDOW", recvWindow)
+                .header("X-BAPI-SIGN", signature)
+                .POST(HttpRequest.BodyPublishers.ofString(bodyJson, StandardCharsets.UTF_8))
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    private JsonNode successfulResult(HttpResponse<String> response) throws Exception {
+        assertThat(response.statusCode()).isBetween(200, 299);
+        assertSuccessfulBybitResponse(response.body());
+        return objectMapper.readTree(response.body()).path("result");
     }
 
     private void assertSuccessfulBybitResponse(String responseBody) throws Exception {
@@ -101,7 +146,7 @@ class BybitOrderChatRawManualTests {
     }
 
     private int messageCount(String responseBody) throws Exception {
-        JsonNode messages = objectMapper.readTree(responseBody).path("result").path("result");
+        JsonNode messages = objectMapper.readTree(responseBody).path("result").path("messages");
         return messages.isArray() ? messages.size() : 0;
     }
 

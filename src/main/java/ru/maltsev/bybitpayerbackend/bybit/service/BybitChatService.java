@@ -333,17 +333,7 @@ public class BybitChatService {
     }
 
     private List<BybitChatMessage> getRawMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
-        try {
-            return cachedRemoteMessages(workspace, withdrawal);
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "Bybit chat history fetch failed: withdrawalId={}, orderId={}, message={}",
-                    withdrawal.getId(),
-                    withdrawal.getBybitOrderId(),
-                    exception.getMessage()
-            );
-            throw BusinessException.serviceUnavailable("Bybit chat history is temporarily unavailable");
-        }
+        return cachedRemoteMessages(workspace, withdrawal);
     }
 
     private List<BybitChatMessage> cachedRemoteMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
@@ -355,6 +345,10 @@ public class BybitChatService {
             entry.lastAccessAt = now;
             return cachedMessages;
         }
+        if (retryBlocked(entry, now)) {
+            entry.lastAccessAt = now;
+            return cachedMessages == null ? List.of() : cachedMessages;
+        }
 
         entry.lock.lock();
         try {
@@ -364,13 +358,36 @@ public class BybitChatService {
                 entry.lastAccessAt = now;
                 return cachedMessages;
             }
+            if (retryBlocked(entry, now)) {
+                entry.lastAccessAt = now;
+                return cachedMessages == null ? List.of() : cachedMessages;
+            }
 
-            List<BybitChatMessage> remoteMessages = fetchRemoteMessages(workspace, withdrawal);
-            List<BybitChatMessage> immutableMessages = List.copyOf(remoteMessages);
-            entry.messages = immutableMessages;
-            entry.fetchedAt = now;
-            entry.lastAccessAt = now;
-            return immutableMessages;
+            try {
+                List<BybitChatMessage> remoteMessages = fetchRemoteMessages(workspace, withdrawal);
+                List<BybitChatMessage> immutableMessages = List.copyOf(remoteMessages);
+                entry.messages = immutableMessages;
+                entry.fetchedAt = now;
+                entry.lastAccessAt = now;
+                entry.retryAfter = null;
+                return immutableMessages;
+            } catch (RuntimeException exception) {
+                Duration failureBackoff = businessProperties.getChatReadFailureBackoff();
+                if (failureBackoff.isZero() || failureBackoff.isNegative()) {
+                    failureBackoff = Duration.ofSeconds(1);
+                }
+                Instant failedAt = Instant.now(clock);
+                entry.retryAfter = failedAt.plus(failureBackoff);
+                entry.lastAccessAt = failedAt;
+                log.warn(
+                        "Bybit chat history fetch failed; serving cached data: withdrawalId={}, orderId={}, retryAfter={}, message={}",
+                        withdrawal.getId(),
+                        withdrawal.getBybitOrderId(),
+                        entry.retryAfter,
+                        exception.getMessage()
+                );
+                return cachedMessages == null ? List.of() : cachedMessages;
+            }
         } finally {
             entry.lock.unlock();
         }
@@ -379,6 +396,10 @@ public class BybitChatService {
     private boolean fresh(ChatCacheEntry entry, Instant now) {
         return entry.fetchedAt != null
                 && Duration.between(entry.fetchedAt, now).compareTo(businessProperties.getChatReadCacheTtl()) < 0;
+    }
+
+    private boolean retryBlocked(ChatCacheEntry entry, Instant now) {
+        return entry.retryAfter != null && now.isBefore(entry.retryAfter);
     }
 
     private List<BybitChatMessage> fetchRemoteMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
@@ -457,6 +478,7 @@ public class BybitChatService {
             entry.messages = List.copyOf(updatedMessages);
             entry.fetchedAt = now;
             entry.lastAccessAt = now;
+            entry.retryAfter = null;
         } finally {
             entry.lock.unlock();
         }
@@ -561,6 +583,7 @@ public class BybitChatService {
         private volatile List<BybitChatMessage> messages;
         private volatile Instant fetchedAt;
         private volatile Instant lastAccessAt = Instant.EPOCH;
+        private volatile Instant retryAfter;
     }
 
     private record SentChatMessage(String messageUuid, String messageText) {
