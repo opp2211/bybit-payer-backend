@@ -12,15 +12,14 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.DynamicUpdate;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatSessionStatus;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatStep;
-import ru.maltsev.bybitpayerbackend.ai.model.AiChatAgentMode;
 import ru.maltsev.bybitpayerbackend.ai.model.AiChatAction;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
@@ -30,7 +29,13 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 @NoArgsConstructor
 @Entity
 @DynamicUpdate
-@Table(name = "ai_chat_sessions")
+@Table(
+        name = "ai_chat_sessions",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_ai_chat_sessions_withdrawal_order",
+                columnNames = {"withdrawal_request_id", "bybit_order_id"}
+        )
+)
 public class AiChatSessionEntity {
 
     @Id
@@ -41,16 +46,15 @@ public class AiChatSessionEntity {
     @JoinColumn(name = "workspace_id", nullable = false)
     private WorkspaceEntity workspace;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "withdrawal_request_id", nullable = false)
     private WithdrawalRequestEntity withdrawalRequest;
 
     @Column(name = "bybit_order_id", length = 128)
     private String bybitOrderId;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "mode", nullable = false, length = 32)
-    private AiChatAgentMode mode = AiChatAgentMode.ENABLED;
+    @Column(name = "enabled", nullable = false)
+    private boolean enabled = true;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 48)
@@ -113,22 +117,6 @@ public class AiChatSessionEntity {
 
     @Column(name = "payment_verification_reminder_sent_at")
     private Instant paymentVerificationReminderSentAt;
-
-    @Column(name = "suggested_messages_json", columnDefinition = "text")
-    private String suggestedMessagesJson;
-
-    @Column(name = "suggested_reason", columnDefinition = "text")
-    private String suggestedReason;
-
-    @Column(name = "suggested_at")
-    private Instant suggestedAt;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "suggested_action", length = 48)
-    private AiChatAction suggestedAction;
-
-    @Column(name = "suggested_final_warning", columnDefinition = "text")
-    private String suggestedFinalWarning;
 
     @Column(name = "last_decision_summary", columnDefinition = "text")
     private String lastDecisionSummary;

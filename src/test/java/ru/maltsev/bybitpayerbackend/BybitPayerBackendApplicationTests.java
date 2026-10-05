@@ -41,9 +41,6 @@ class BybitPayerBackendApplicationTests {
                 where table_name = 'ai_chat_sessions'
                   and column_name in (
                     'operator_handoff_reason',
-                    'suggested_messages_json',
-                    'suggested_reason',
-                    'suggested_final_warning',
                     'last_decision_summary',
                     'conversation_summary'
                   )

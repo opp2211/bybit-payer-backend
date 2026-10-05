@@ -26,6 +26,7 @@ BYBIT_RECV_WINDOW_MS=10000
 BYBIT_ORDER_SOURCE_SIDE=SELL
 BYBIT_BALANCE_ACCOUNT_TYPE=FUND
 BYBIT_BALANCE_COIN=USDT
+WITHDRAWAL_CANCELLATION_GRACE_PERIOD_SECONDS=5
 ```
 
 `BYBIT_API_KEY`, `BYBIT_API_SECRET`, and `BYBIT_P2P_AD_ID` are no longer the
@@ -105,11 +106,14 @@ and `-Dbybit.chat.max-pages=20` by default.
 - `POST /v5/p2p/item/update` — update/relist managed ad.
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
-- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order.
+- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order and obtain
+  `targetUserMaskId` when a chat session must be created.
 - `POST /v5/p2p/user/personal/info` — read the workspace Bybit `userId`, `accountId`,
   and `nickName` used for chat author classification.
-- `POST /v5/p2p/order/message/send` — send requisites and operator messages to order chat.
-- `POST /v5/p2p/order/message/listpage` — read the full order chat history shown in withdrawal details.
+- `POST /v5/p2p/chat/session/getSessionId` — obtain the encrypted chat `sessionId`; the gateway caches
+  it per API key/order for the process lifetime.
+- `POST /v5/p2p/chat/message/send_v1` — send requisites and operator messages to order chat.
+- `POST /v5/p2p/chat/message/listpage_v1` — read the full order chat history shown in withdrawal details.
   The gateway reads pages of up to 30 messages until a page returns fewer messages or
   `BYBIT_CHAT_MESSAGE_MAX_PAGES` is reached.
 - `POST /v5/p2p/order/finish` — release assets after verified receipt.
@@ -160,6 +164,12 @@ toward `BYBIT_RATE_SOURCE_MIN_AD_INDEX` (7 by default) and never goes below it. 
 resets the sequence. Binding a new Bybit order rebuilds the managed ad, so a rate that had already
 moved to a lower position, for example 12, returns to position 15.
 
+Order polling commits a new order binding and its withdrawal state before dispatching chat
+messages and rebuilding the managed ad. Chat dispatch and ad synchronization therefore use
+separate transactions. An ad rebuild failure, including insufficient transferable USDT balance,
+cannot roll back a visible order binding or cause the fixed requisite messages to be sent again
+on the next poll.
+
 The effective seventh-position RUB/USDT rate includes the P2P fee in the USDT total:
 `effective rate = market rate / (1 + P2P_FEE_RATE)`. For example, `75.50 / 1.00275 = 75.29294440`.
 
@@ -168,17 +178,47 @@ Bound orders are checked through `/v5/p2p/order/info` after they disappear from 
 - status `40`, `70`, or `80` detaches the order and returns the withdrawal to publication;
 - status `50` completes the withdrawal because the assets were released outside the application.
 
+The active-order endpoint is read page by page (up to 30 orders per page) before
+matching starts, so orders beyond the first page are not skipped.
+
+Dispute statuses are synchronized even when the binding was already marked as released:
+
+- status `30` (appealing) and `100` (objectioning) move the withdrawal to `APPEAL`;
+- status `110` (waiting for the user to raise an objection) moves it to the separate
+  `OBJECTION_REQUIRED` status;
+- a disputed order ending in `40`, `70`, or `80` moves the withdrawal to `CANCELLED`;
+- a disputed order ending in `50` moves the withdrawal back to `COMPLETED`.
+
+`APPEAL` and `OBJECTION_REQUIRED` are active withdrawal statuses and require operator
+attention, so a previously completed withdrawal becomes visible in the active list again.
+
+Cancelling an `IN_WORK` withdrawal uses a safety window to cover the normal order-polling
+race. The withdrawal first moves to `CANCELLATION_PENDING`, the managed ad is rebuilt
+without it (or unpublished if no other withdrawal remains), and the application waits
+`WITHDRAWAL_CANCELLATION_GRACE_PERIOD_SECONDS` (5 seconds by default). It then performs
+an immediate full active-order poll. If a late order is found, the normal binding flow
+attaches it to the withdrawal and cancellation is rejected; otherwise the withdrawal is
+cancelled. An order already bound to another withdrawal never blocks this cancellation
+merely because its RUB amount is the same.
+
 When an order is marked paid, only `TBANK_AUTO` withdrawals with `SBP` or `CARD_NUMBER`
 start mail receipt verification and send the receipt email to chat. `SBERBANK` and
 `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
 skip mailbox polling, and must be released manually.
 
-If the AI chat agent feature is enabled globally, binding a Bybit order starts an AI session
-instead of immediately sending fixed requisite messages. The session has three operator modes:
+Each workspace stores its own AI chat agent setting. New and migrated workspaces start with the
+setting disabled. Binding a Bybit order while the setting is disabled immediately sends the fixed
+requisite messages, does not create an AI session, and does not call OpenAI. Binding while the
+setting is enabled starts an AI session instead. Enabling the workspace setting is rejected when
+`OPENAI_API_KEY` is empty.
 
-- `ENABLED`: the agent sends its messages to Bybit automatically and the manual composer is locked;
-- `DISABLED`: the agent neither answers nor prepares suggestions and the operator owns the chat;
-- `DRY_RUN`: the agent prepares one or more messages, but only the operator can send the batch.
+Changing the workspace setting only affects orders bound afterwards. Existing AI sessions keep
+working if the workspace setting is later disabled. While an order's AI session is enabled, the
+manual composer is locked. Any workspace member can disable that session once; this immediately
+unlocks manual chat and cannot be reversed. If an OpenAI response is already in progress, the
+persisted session flag is locked and checked again before dispatch so no AI message is sent after
+the disable request completes. Orders bound while the workspace setting was disabled have no AI
+session and cannot enable one later.
 
 The agent can read the withdrawal, order, complete Bybit chat, requisites, and receipt-check
 state. Its structured actions are limited to sending chat messages, requesting backend-controlled
@@ -194,9 +234,11 @@ fixed hello message and continues from the existing conversation. Backend valida
 the model to persist structured facts, such as the payer bank, before moving to the next
 requirement, and blocks "did you really send it?" questions after the counterparty has attached a
 payment-proof file.
-AI sessions store the bound `bybit_order_id`; if a withdrawal returns to publication after
-order cancellation and later receives another Bybit order, the old session state is reset
-and the confirmation flow starts again for the new order.
+AI sessions are scoped to the bound `bybit_order_id`. If a withdrawal returns to publication
+after order cancellation and later receives another Bybit order, the previous session is
+completed and a separate clean session is created for the replacement order. Operator actions
+and polling resolve the session that matches the withdrawal's current order, so state and model
+history from the cancelled order cannot affect the new conversation.
 
 Before requisites are sent, the agent confirms the withdrawal conditions with the counterparty:
 
@@ -246,21 +288,25 @@ as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
 
 Raw chat history is not persisted locally; only AI session state and the compact conversation
 summary are stored. Outgoing messages are sent directly to
-`/v5/p2p/order/message/send`, and withdrawal details read chat history from
-`/v5/p2p/order/message/listpage` through `BybitChatService`. The service keeps a
-short in-memory cache per workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (5 seconds
-by default), removes entries idle longer than `CHAT_READ_CACHE_MAX_IDLE_SECONDS`, and
-caps the cache with `CHAT_READ_CACHE_MAX_ENTRIES`. If Bybit chat history is unavailable
-and no fresh cache entry can be used, the API returns an error.
+`/v5/p2p/chat/message/send_v1`, and withdrawal details read chat history from
+`/v5/p2p/chat/message/listpage_v1` through `BybitChatService`. A chat `sessionId` is resolved once
+from the order's `targetUserMaskId` and reused. The service keeps an in-memory cache per
+workspace/order for `CHAT_READ_CACHE_TTL_SECONDS` (15 seconds by default), removes entries idle
+longer than `CHAT_READ_CACHE_MAX_IDLE_SECONDS`, and caps the cache with
+`CHAT_READ_CACHE_MAX_ENTRIES`. A failed chat read starts a
+`CHAT_READ_FAILURE_BACKOFF_SECONDS` cooldown (60 seconds by default). During the cooldown no
+Bybit chat request is made and withdrawal details use stale cached chat or an empty list, so a
+chat outage does not make the whole details endpoint unavailable.
 
 The UI chat response is formatted by the backend. `SYS_ORDER_CARD` (`msgType=11`) messages
 are hidden. `msgType=0`, `msgType=103`, `roleType=sys`, and `roleType=alarm` are shown as
 system messages; `msgType=5` or `msgType=6` are shown as support. Text content uses
 `content.type=TEXT`; attachments use `IMAGE`, `PDF`, or `VIDEO`, and relative Bybit file
 paths are resolved against `BYBIT_CHAT_FILE_BASE_URL` (`https://api2.bybit.com` by default).
-Workspace Bybit `userId`/`accountId` classify own messages, and `bybit_bot_chat_messages`
-stores `msgUuid` values sent by automation so the frontend can distinguish bot messages
-from manual operator messages.
+Workspace Bybit `userId`/`accountId` classify own messages from legacy-shaped data; the new chat
+API only returns the sender nickname, which is used as a fallback. `bybit_bot_chat_messages`
+stores locally generated `msgUuid` values so freshly appended automation messages can be
+distinguished from manual operator messages while they remain in the local cache.
 
 Backend-appended copyable requisite messages depend on withdrawal method:
 

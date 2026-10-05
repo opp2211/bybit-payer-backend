@@ -12,9 +12,14 @@ import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 
 public interface AiChatSessionRepository extends JpaRepository<AiChatSessionEntity, Long> {
 
-    Optional<AiChatSessionEntity> findByWithdrawalRequest_Id(Long withdrawalRequestId);
+    Optional<AiChatSessionEntity> findByWithdrawalRequestAndBybitOrderId(
+            WithdrawalRequestEntity withdrawalRequest,
+            String bybitOrderId
+    );
 
-    Optional<AiChatSessionEntity> findByWithdrawalRequest(WithdrawalRequestEntity withdrawal);
+    Optional<AiChatSessionEntity> findFirstByWithdrawalRequestOrderByCreatedAtDescIdDesc(
+            WithdrawalRequestEntity withdrawalRequest
+    );
 
     List<AiChatSessionEntity> findByStatusInOrderByUpdatedAtAscIdAsc(Collection<AiChatSessionStatus> statuses);
 }

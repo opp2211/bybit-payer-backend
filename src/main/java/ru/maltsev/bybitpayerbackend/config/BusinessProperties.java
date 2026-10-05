@@ -14,8 +14,10 @@ public class BusinessProperties {
 
     private Duration attentionTimeout = Duration.ofSeconds(300);
     private Duration chatMessageDelay = Duration.ofMillis(500);
-    private Duration chatReadCacheTtl = Duration.ofSeconds(5);
+    private Duration chatReadCacheTtl = Duration.ofSeconds(15);
+    private Duration chatReadFailureBackoff = Duration.ofSeconds(60);
     private Duration chatReadCacheMaxIdle = Duration.ofSeconds(60);
+    private Duration withdrawalCancellationGracePeriod = Duration.ofSeconds(5);
     private int chatReadCacheMaxEntries = 200;
     private int usdtQuantityScale = 4;
     private int maxPublishedAmounts = 10;

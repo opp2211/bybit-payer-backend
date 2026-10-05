@@ -1,9 +1,13 @@
 package ru.maltsev.bybitpayerbackend.bybit.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,14 +18,20 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
+import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
@@ -51,7 +61,9 @@ class BybitOrderWatcherTests {
         when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10")));
         when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
         when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
-        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+        when(withdrawalRepository.findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        ))
                 .thenReturn(List.of(withdrawal));
         when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -103,7 +115,9 @@ class BybitOrderWatcherTests {
 
         watcher.pollActiveOrders();
 
-        verify(withdrawalRepository, never()).findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK);
+        verify(withdrawalRepository, never()).findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        );
         verify(foreignOrderService).removeMissingOrders(Set.of("order-1"));
         verify(advertisementManager, never()).rebuildPublication();
     }
@@ -127,7 +141,9 @@ class BybitOrderWatcherTests {
         when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10", "20000.50")));
         when(bindingRepository.findByBybitOrderId("order-1")).thenReturn(Optional.empty());
         when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
-        when(withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.IN_WORK))
+        when(withdrawalRepository.findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        ))
                 .thenReturn(List.of(withdrawal));
         when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(bindingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -148,6 +164,72 @@ class BybitOrderWatcherTests {
         assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_IN_PROGRESS);
         assertThat(withdrawal.getBybitOrderAmountRub()).isEqualByComparingTo("20000.50");
         verify(advertisementManager).rebuildPublication();
+    }
+
+    @Test
+    void doesNotResendRequisitesWhenPublicationRebuildFailsAfterBinding() {
+        BybitGateway gateway = mock(BybitGateway.class);
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        BybitOrderBindingRepository bindingRepository = mock(BybitOrderBindingRepository.class);
+        ForeignBybitOrderService foreignOrderService = mock(ForeignBybitOrderService.class);
+        AdvertisementManager advertisementManager = mock(AdvertisementManager.class);
+        BybitChatService chatService = mock(BybitChatService.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+        TransactionStatus transactionStatus = mock(TransactionStatus.class);
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(188L);
+        withdrawal.setStatus(WithdrawalStatus.IN_WORK);
+        withdrawal.setAmountRub(new BigDecimal("10000"));
+        AtomicReference<BybitOrderBindingEntity> persistedBinding = new AtomicReference<>();
+
+        when(gateway.fetchActiveOrders()).thenReturn(List.of(order("10")));
+        when(bindingRepository.findByBybitOrderId("order-1"))
+                .thenAnswer(invocation -> Optional.ofNullable(persistedBinding.get()));
+        when(bindingRepository.findAllByStatus(OrderBindingStatus.ACTIVE)).thenReturn(List.of());
+        when(withdrawalRepository.findForBindingByStatusInOrderByCreatedAtAscIdAsc(
+                WithdrawalStatus.ORDER_BINDABLE_STATUSES
+        ))
+                .thenReturn(List.of(withdrawal));
+        when(withdrawalRepository.findById(188L)).thenReturn(Optional.of(withdrawal));
+        when(withdrawalRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bindingRepository.save(any())).thenAnswer(invocation -> {
+            BybitOrderBindingEntity binding = invocation.getArgument(0);
+            persistedBinding.set(binding);
+            return binding;
+        });
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+        doThrow(BusinessException.conflict("Insufficient USDT balance for managed ad"))
+                .when(advertisementManager)
+                .rebuildPublication();
+
+        BybitOrderWatcher watcher = new BybitOrderWatcher(
+                gateway,
+                new BybitCredentialsContext(),
+                null,
+                null,
+                withdrawalRepository,
+                bindingRepository,
+                foreignOrderService,
+                advertisementManager,
+                chatService,
+                null,
+                eventService,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                transactionManager
+        );
+
+        assertThatCode(watcher::pollActiveOrders).doesNotThrowAnyException();
+        assertThatCode(watcher::pollActiveOrders).doesNotThrowAnyException();
+
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_IN_PROGRESS);
+        assertThat(persistedBinding.get()).isNotNull();
+        InOrder bindingBeforeChat = inOrder(bindingRepository, transactionManager, chatService);
+        bindingBeforeChat.verify(bindingRepository).save(any());
+        bindingBeforeChat.verify(transactionManager).commit(transactionStatus);
+        bindingBeforeChat.verify(chatService).sendRequisites(any(), any(), any(Boolean.class));
+        verify(chatService, times(1)).sendRequisites(any(), any(), any(Boolean.class));
+        verify(advertisementManager, times(1)).rebuildPublication();
     }
 
     @Test
@@ -176,6 +258,79 @@ class BybitOrderWatcherTests {
         assertThat(fixture.withdrawal.getCompletedAt()).isEqualTo(NOW);
         assertThat(fixture.withdrawal.isCompletionSeen()).isFalse();
         verify(fixture.advertisementManager, never()).rebuildPublication();
+    }
+
+    @Test
+    void reactivatesCompletedWithdrawalWhenOrderEntersAppeal() {
+        Fixture fixture = new Fixture(WithdrawalStatus.COMPLETED);
+        fixture.withdrawal.setCompletedAt(NOW.minusSeconds(120));
+        fixture.withdrawal.setCompletionSeen(true);
+        fixture.binding.setStatus(OrderBindingStatus.RELEASED);
+        when(fixture.gateway.fetchActiveOrders()).thenReturn(List.of(order("30")));
+        when(fixture.bindingRepository.findByBybitOrderId("order-1"))
+                .thenReturn(Optional.of(fixture.binding));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.ACTIVE);
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.APPEAL);
+        assertThat(fixture.withdrawal.getCompletedAt()).isNull();
+        assertThat(fixture.withdrawal.isCompletionSeen()).isFalse();
+        assertThat(fixture.withdrawal.isAttentionRequired()).isTrue();
+        assertThat(fixture.withdrawal.getLastWarning()).contains("Bybit");
+    }
+
+    @Test
+    void mapsBybitObjectioningStatusToAppeal() {
+        Fixture fixture = new Fixture(WithdrawalStatus.COMPLETED);
+        fixture.binding.setStatus(OrderBindingStatus.RELEASED);
+        when(fixture.gateway.fetchActiveOrders()).thenReturn(List.of(order("100")));
+        when(fixture.bindingRepository.findByBybitOrderId("order-1"))
+                .thenReturn(Optional.of(fixture.binding));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.APPEAL);
+    }
+
+    @Test
+    void separatesWaitingForUserObjectionFromAppeal() {
+        Fixture fixture = new Fixture(WithdrawalStatus.APPEAL);
+        when(fixture.gateway.fetchActiveOrders()).thenReturn(List.of(order("110")));
+        when(fixture.bindingRepository.findByBybitOrderId("order-1"))
+                .thenReturn(Optional.of(fixture.binding));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.OBJECTION_REQUIRED);
+        assertThat(fixture.withdrawal.getLastWarning()).contains("Bybit");
+    }
+
+    @Test
+    void cancelsWithdrawalWhenAppealEndsWithCancellation() {
+        Fixture fixture = new Fixture(WithdrawalStatus.APPEAL);
+        when(fixture.gateway.fetchOrder("order-1")).thenReturn(Optional.of(order("40")));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.CANCELLED);
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.CANCELLED);
+        assertThat(fixture.withdrawal.getCancelledAt()).isEqualTo(NOW);
+        assertThat(fixture.withdrawal.getCompletedAt()).isNull();
+        assertThat(fixture.withdrawal.getBybitOrderId()).isEqualTo("order-1");
+        verify(fixture.advertisementManager, never()).rebuildPublication();
+    }
+
+    @Test
+    void completesWithdrawalWhenAppealEndsWithCompletion() {
+        Fixture fixture = new Fixture(WithdrawalStatus.OBJECTION_REQUIRED);
+        when(fixture.gateway.fetchOrder("order-1")).thenReturn(Optional.of(order("50")));
+
+        fixture.watcher.pollActiveOrders();
+
+        assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.RELEASED);
+        assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
+        assertThat(fixture.withdrawal.getCompletedAt()).isEqualTo(NOW);
     }
 
     @Test

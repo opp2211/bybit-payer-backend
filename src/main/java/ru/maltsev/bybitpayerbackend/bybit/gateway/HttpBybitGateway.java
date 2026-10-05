@@ -14,10 +14,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -43,6 +46,9 @@ public class HttpBybitGateway implements BybitGateway {
     private static final int AD_STATUS_ONLINE = 10;
     private static final int ORDER_STATUS_WAITING_BUYER_PAY = 10;
     private static final int ORDER_STATUS_WAITING_SELLER_RELEASE = 20;
+    private static final String CHAT_SESSION_PATH = "/v5/p2p/chat/session/getSessionId";
+    private static final String CHAT_MESSAGES_PATH = "/v5/p2p/chat/message/listpage_v1";
+    private static final String CHAT_SEND_PATH = "/v5/p2p/chat/message/send_v1";
     private static final List<String> TRADING_PREFERENCE_FIELDS = List.of(
             "hasUnPostAd",
             "isKyc",
@@ -64,6 +70,7 @@ public class HttpBybitGateway implements BybitGateway {
     private final Clock clock;
     private final HttpClient httpClient;
     private final Object rateLimitMonitor = new Object();
+    private final Map<ChatSessionCacheKey, String> chatSessionIds = new ConcurrentHashMap<>();
     private long nextRequestAtNanos;
 
     public HttpBybitGateway(BybitProperties properties, Clock clock) {
@@ -158,30 +165,38 @@ public class HttpBybitGateway implements BybitGateway {
 
     @Override
     public List<BybitP2pOrder> fetchActiveOrders() {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("status", null);
-        request.put("beginTime", null);
-        request.put("endTime", null);
-        request.put("tokenId", properties.getBalanceCoin());
-        request.put("side", orderSideCode(properties.getOrderSourceSide()));
-        request.put("page", 1);
-        request.put("size", Math.min(Math.max(1, properties.getOrderPageSize()), 30));
+        int pageSize = Math.min(Math.max(1, properties.getOrderPageSize()), 30);
+        Map<String, BybitP2pOrder> ordersById = new LinkedHashMap<>();
+        for (int page = 1; page <= 100; page++) {
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("status", null);
+            request.put("beginTime", null);
+            request.put("endTime", null);
+            request.put("tokenId", properties.getBalanceCoin());
+            request.put("side", orderSideCode(properties.getOrderSourceSide()));
+            request.put("page", page);
+            request.put("size", pageSize);
 
-        JsonNode result = post("/v5/p2p/order/pending/simplifyList", request);
-        JsonNode items = result.path("items");
-        if (!items.isArray()) {
-            return List.of();
-        }
-
-        List<BybitP2pOrder> orders = new ArrayList<>();
-        for (JsonNode item : items) {
-            String orderId = item.path("id").asText();
-            if (!StringUtils.hasText(orderId)) {
-                continue;
+            JsonNode result = post("/v5/p2p/order/pending/simplifyList", request);
+            JsonNode items = result.path("items");
+            if (!items.isArray() || items.isEmpty()) {
+                break;
             }
-            orders.add(toOrder(item));
+
+            for (JsonNode item : items) {
+                String orderId = item.path("id").asText();
+                if (!StringUtils.hasText(orderId)) {
+                    continue;
+                }
+                ordersById.putIfAbsent(orderId, toOrder(item));
+            }
+
+            int totalCount = result.path("count").asInt(-1);
+            if (items.size() < pageSize || totalCount >= 0 && ordersById.size() >= totalCount) {
+                break;
+            }
         }
-        return List.copyOf(orders);
+        return List.copyOf(ordersById.values());
     }
 
     @Override
@@ -214,38 +229,39 @@ public class HttpBybitGateway implements BybitGateway {
             return List.of();
         }
 
+        String sessionId = chatSessionId(bybitOrderId);
         int pageSize = Math.min(Math.max(1, properties.getChatMessagePageSize()), 30);
         int maxPages = Math.max(1, properties.getChatMessageMaxPages());
         List<BybitChatMessage> result = new ArrayList<>();
+        Set<String> seenIds = new LinkedHashSet<>();
+        long lastId = 0L;
 
         for (int page = 1; page <= maxPages; page++) {
             Map<String, Object> request = new LinkedHashMap<>();
-            request.put("orderId", bybitOrderId);
-            request.put("currentPage", String.valueOf(page));
-            request.put("size", String.valueOf(pageSize));
-            JsonNode messages = post("/v5/p2p/order/message/listpage", request).path("result");
+            request.put("lastId", lastId);
+            request.put("limit", pageSize);
+            request.put("sessionId", sessionId);
+            JsonNode messages = post(CHAT_MESSAGES_PATH, request).path("messages");
             if (!messages.isArray()) {
                 return List.copyOf(result);
             }
 
-            messages.forEach(item -> result.add(new BybitChatMessage(
-                    item.path("id").asText(),
-                    item.path("message").asText(),
-                    item.path("userId").asText(),
-                    item.path("msgType").asInt(),
-                    instantFromMillis(item.path("createDate").asText()),
-                    item.path("contentType").asText("str"),
-                    item.path("orderId").asText(bybitOrderId),
-                    item.path("msgUuid").asText(),
-                    item.path("nickName").asText(),
-                    item.path("roleType").asText(),
-                    item.path("accountId").asText(),
-                    item.path("msgCode").isMissingNode() ? null : item.path("msgCode").asInt(),
-                    item.path("fileName").asText()
-            )));
+            for (JsonNode item : messages) {
+                String messageId = item.path("id").asText();
+                if (seenIds.add(messageId)) {
+                    result.add(toChatMessage(item, bybitOrderId));
+                }
+            }
             if (messages.size() < pageSize) {
                 return List.copyOf(result);
             }
+            long nextLastId = parseChatMessageId(messages.get(messages.size() - 1).path("id").asText());
+            if (nextLastId <= 0 || nextLastId == lastId) {
+                log.warn("Bybit chat message pagination stopped by invalid cursor: orderId={}, lastId={}",
+                        bybitOrderId, nextLastId);
+                return List.copyOf(result);
+            }
+            lastId = nextLastId;
         }
 
         log.warn(
@@ -296,9 +312,77 @@ public class HttpBybitGateway implements BybitGateway {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("message", messageText);
         request.put("contentType", "str");
+        request.put("sessionId", chatSessionId(bybitOrderId));
         request.put("orderId", bybitOrderId);
-        request.put("msgUuid", messageUuid);
-        post("/v5/p2p/order/message/send", request);
+        post(CHAT_SEND_PATH, request);
+    }
+
+    private String chatSessionId(String bybitOrderId) {
+        ChatSessionCacheKey key = new ChatSessionCacheKey(apiKey(), bybitOrderId);
+        return chatSessionIds.computeIfAbsent(key, ignored -> fetchChatSessionId(bybitOrderId));
+    }
+
+    private String fetchChatSessionId(String bybitOrderId) {
+        Map<String, Object> orderRequest = new LinkedHashMap<>();
+        orderRequest.put("orderId", bybitOrderId);
+        JsonNode order = post("/v5/p2p/order/info", orderRequest);
+        String targetUserMaskId = order.path("targetUserMaskId").asText();
+        if (!StringUtils.hasText(targetUserMaskId)) {
+            throw new BybitApiException("Bybit order does not contain targetUserMaskId: " + bybitOrderId);
+        }
+
+        Map<String, Object> sessionRequest = new LinkedHashMap<>();
+        sessionRequest.put("userMaskId", targetUserMaskId);
+        String sessionId = post(CHAT_SESSION_PATH, sessionRequest).path("sessionId").asText();
+        if (!StringUtils.hasText(sessionId)) {
+            throw new BybitApiException("Bybit chat session response does not contain sessionId: " + bybitOrderId);
+        }
+        return sessionId;
+    }
+
+    private BybitChatMessage toChatMessage(JsonNode item, String bybitOrderId) {
+        String rawMessage = item.path("message").asText();
+        JsonNode payload = parseChatMessagePayload(rawMessage);
+        String message = payload.path("content").asText(rawMessage);
+        Integer messageCode = payload.hasNonNull("msgCode") && StringUtils.hasText(payload.path("msgCode").asText())
+                ? payload.path("msgCode").asInt()
+                : null;
+        return new BybitChatMessage(
+                item.path("id").asText(),
+                message,
+                "",
+                payload.path("msgType").asInt(),
+                instantFromMillis(item.path("createDate").asText()),
+                item.path("contentType").asText("str"),
+                bybitOrderId,
+                "",
+                item.path("sendUserNickName").asText(),
+                "",
+                "",
+                messageCode,
+                payload.path("fileName").asText()
+        );
+    }
+
+    private JsonNode parseChatMessagePayload(String rawMessage) {
+        if (!StringUtils.hasText(rawMessage)) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            JsonNode payload = objectMapper.readTree(rawMessage);
+            return payload.isObject() ? payload : objectMapper.createObjectNode();
+        } catch (JsonProcessingException exception) {
+            log.debug("Bybit chat message payload is not JSON");
+            return objectMapper.createObjectNode();
+        }
+    }
+
+    private long parseChatMessageId(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException exception) {
+            return -1L;
+        }
     }
 
     @Override
@@ -673,6 +757,9 @@ public class HttpBybitGateway implements BybitGateway {
 
     private String decimal(BigDecimal value) {
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    private record ChatSessionCacheKey(String apiKey, String bybitOrderId) {
     }
 
 }

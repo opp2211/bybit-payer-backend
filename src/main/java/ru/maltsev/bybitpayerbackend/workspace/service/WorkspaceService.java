@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import ru.maltsev.bybitpayerbackend.ai.service.OpenAiChatAgentClient;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitAccountInfo;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentials;
@@ -49,6 +50,7 @@ public class WorkspaceService {
     private final BybitGateway bybitGateway;
     private final TinkoffReceiptMailService mailService;
     private final AuditService auditService;
+    private final OpenAiChatAgentClient openAiClient;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -109,6 +111,7 @@ public class WorkspaceService {
         workspace.setImapPort(request.imapPort());
         workspace.setImapUsername(request.imapUsername().trim());
         workspace.setEnabled(true);
+        workspace.setAiChatAgentEnabled(false);
         workspace.setCreatedAt(now);
         workspace.setUpdatedAt(now);
         secretService.storeSecrets(workspace, request.bybitApiKey(), request.bybitApiSecret(), request.imapPassword());
@@ -116,6 +119,31 @@ public class WorkspaceService {
         addMember(workspace, currentUser, WorkspaceMemberRole.OWNER, currentUser, now);
         auditService.add(currentUser, workspace, "WORKSPACE_CREATED", "WORKSPACE", workspace.getPublicId(), null);
         log.info("Workspace created: publicId={}, owner={}", workspace.getPublicId(), currentUser.getUsername());
+        return toResponse(workspace, currentUser);
+    }
+
+    @Transactional
+    public WorkspaceResponse updateAiChatAgent(String workspacePublicId, boolean enabled) {
+        UserEntity currentUser = currentUserService.currentUser();
+        WorkspaceEntity workspace = accessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        if (workspace.isAiChatAgentEnabled() == enabled) {
+            return toResponse(workspace, currentUser);
+        }
+        if (enabled && !openAiClient.configured()) {
+            throw BusinessException.conflict("OpenAI API key is not configured");
+        }
+
+        workspace.setAiChatAgentEnabled(enabled);
+        workspace.setUpdatedAt(Instant.now(clock));
+        workspaceRepository.save(workspace);
+        auditService.add(
+                currentUser,
+                workspace,
+                enabled ? "WORKSPACE_AI_CHAT_ENABLED" : "WORKSPACE_AI_CHAT_DISABLED",
+                "WORKSPACE",
+                workspace.getPublicId(),
+                null
+        );
         return toResponse(workspace, currentUser);
     }
 
@@ -221,6 +249,7 @@ public class WorkspaceService {
                 workspace.getImapPort(),
                 workspace.getImapUsername(),
                 workspace.isEnabled(),
+                workspace.isAiChatAgentEnabled(),
                 workspace.getCreatedAt()
         );
     }

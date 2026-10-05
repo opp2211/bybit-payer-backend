@@ -2,13 +2,17 @@ package ru.maltsev.bybitpayerbackend.withdrawal.service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.Supplier;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentResponse;
@@ -21,13 +25,14 @@ import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
-import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitP2pOrder;
 import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementManager;
 import ru.maltsev.bybitpayerbackend.bybit.service.AdvertisementPreview;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
+import ru.maltsev.bybitpayerbackend.bybit.service.BybitOrderWatcher;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
 import ru.maltsev.bybitpayerbackend.common.service.PublicIdGenerator;
+import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 import ru.maltsev.bybitpayerbackend.security.service.CurrentUserService;
@@ -71,7 +76,10 @@ public class WithdrawalService {
     private final PublicIdGenerator publicIdGenerator;
     private final AuditService auditService;
     private final AiChatAgentService aiChatAgentService;
+    private final BybitOrderWatcher bybitOrderWatcher;
+    private final BusinessProperties businessProperties;
     private final Clock clock;
+    private final TransactionTemplate transactionTemplate;
 
     @Autowired
     public WithdrawalService(
@@ -93,7 +101,10 @@ public class WithdrawalService {
             PublicIdGenerator publicIdGenerator,
             AuditService auditService,
             AiChatAgentService aiChatAgentService,
-            Clock clock
+            BybitOrderWatcher bybitOrderWatcher,
+            BusinessProperties businessProperties,
+            Clock clock,
+            PlatformTransactionManager transactionManager
     ) {
         this.withdrawalRepository = withdrawalRepository;
         this.eventRepository = eventRepository;
@@ -113,7 +124,10 @@ public class WithdrawalService {
         this.publicIdGenerator = publicIdGenerator;
         this.auditService = auditService;
         this.aiChatAgentService = aiChatAgentService;
+        this.bybitOrderWatcher = bybitOrderWatcher;
+        this.businessProperties = businessProperties;
         this.clock = clock;
+        this.transactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);
     }
 
     public WithdrawalService(
@@ -149,7 +163,10 @@ public class WithdrawalService {
                 null,
                 null,
                 null,
-                clock
+                null,
+                new BusinessProperties(),
+                clock,
+                null
         );
     }
 
@@ -296,43 +313,155 @@ public class WithdrawalService {
         );
     }
 
-    @Transactional
     public WithdrawalResponse cancel(String workspacePublicId, String publicId) {
+        CancellationPreparation preparation = inTransaction(
+                () -> prepareCancellation(workspacePublicId, publicId)
+        );
+        if (!preparation.safetyCheckRequired()) {
+            advertisementManager.rebuildPublication(preparation.workspace());
+            return preparation.response();
+        }
+
+        try {
+            advertisementManager.rebuildPublication(preparation.workspace());
+            awaitCancellationGracePeriod();
+            bybitOrderWatcher.pollActiveOrders(preparation.workspace());
+        } catch (RuntimeException exception) {
+            inTransaction(() -> {
+                abortCancellation(workspacePublicId, publicId, exception);
+                return null;
+            });
+            rebuildPublicationSafely(preparation.workspace());
+            throw exception;
+        }
+
+        return inTransaction(() -> finishCancellation(workspacePublicId, publicId));
+    }
+
+    private CancellationPreparation prepareCancellation(String workspacePublicId, String publicId) {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
-        WithdrawalRequestEntity withdrawal = getRequiredEntity(workspace, publicId);
+        WithdrawalRequestEntity withdrawal = getRequiredEntityForUpdate(workspace, publicId);
         WithdrawalStatus previousStatus = withdrawal.getStatus();
         if (!previousStatus.canBeCancelled()) {
-            throw BusinessException.conflict("Withdrawal cannot be cancelled in status " + previousStatus);
+            throw BusinessException.conflict("Заявку нельзя отменить в статусе " + previousStatus.getTitle());
         }
 
-        if (withdrawal.getStatus() == WithdrawalStatus.IN_WORK) {
-            List<BybitP2pOrder> matchingOrders = bybitCredentialsContext.callWith(
-                    workspaceSecretService.bybitCredentials(workspace),
-                    () -> bybitGateway.fetchActiveOrders().stream()
-                            .filter(order -> orderAmountMatches(withdrawal, order.amountRub()))
-                            .toList()
+        if (previousStatus == WithdrawalStatus.IN_WORK) {
+            withdrawal.setStatus(WithdrawalStatus.CANCELLATION_PENDING);
+            withdrawal.setQueuePosition(null);
+            eventService.add(
+                    withdrawal,
+                    WithdrawalEventType.WITHDRAWAL_CANCELLATION_STARTED,
+                    "Withdrawal cancellation safety check started",
+                    currentUser
             );
-            if (!matchingOrders.isEmpty()) {
-                throw BusinessException.conflict("Cancellation refused because a matching Bybit order exists");
-            }
+            withdrawalRepository.save(withdrawal);
+            log.info("Withdrawal cancellation safety check started: id={}", withdrawal.getId());
+            return new CancellationPreparation(workspace, true, null);
         }
 
+        WithdrawalResponse response = cancelWithdrawal(withdrawal, currentUser, workspace, previousStatus);
+        return new CancellationPreparation(workspace, false, response);
+    }
+
+    private WithdrawalResponse finishCancellation(String workspacePublicId, String publicId) {
+        UserEntity currentUser = currentUserService.currentUser();
+        WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        WithdrawalRequestEntity withdrawal = getRequiredEntityForUpdate(workspace, publicId);
+        if (withdrawal.getStatus() != WithdrawalStatus.CANCELLATION_PENDING) {
+            throw BusinessException.conflict(
+                    "Отмена остановлена: к заявке успел привязаться Bybit-ордер"
+            );
+        }
+        return cancelWithdrawal(
+                withdrawal,
+                currentUser,
+                workspace,
+                WithdrawalStatus.CANCELLATION_PENDING
+        );
+    }
+
+    private WithdrawalResponse cancelWithdrawal(
+            WithdrawalRequestEntity withdrawal,
+            UserEntity currentUser,
+            WorkspaceEntity workspace,
+            WithdrawalStatus previousStatus
+    ) {
         withdrawal.setStatus(WithdrawalStatus.CANCELLED);
         withdrawal.setCancelledAt(Instant.now(clock));
         withdrawal.setQueuePosition(null);
-        eventService.add(withdrawal, WithdrawalEventType.WITHDRAWAL_CANCELLED, "Withdrawal request cancelled by user", currentUser);
-        withdrawalRepository.save(withdrawal);
-        auditService.add(currentUser, workspace, "WITHDRAWAL_CANCELLED", "WITHDRAWAL", withdrawal.getPublicId(), null);
-        advertisementManager.rebuildPublication(workspace);
-        WithdrawalRequestEntity refreshed = getRequiredEntity(workspace, publicId);
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.WITHDRAWAL_CANCELLED,
+                "Withdrawal request cancelled by user",
+                currentUser
+        );
+        WithdrawalRequestEntity saved = withdrawalRepository.save(withdrawal);
+        auditService.add(
+                currentUser,
+                workspace,
+                "WITHDRAWAL_CANCELLED",
+                "WITHDRAWAL",
+                withdrawal.getPublicId(),
+                null
+        );
         log.info(
                 "Withdrawal cancelled: id={}, previousStatus={}, amountRub={}",
-                refreshed.getId(),
+                saved.getId(),
                 previousStatus,
-                refreshed.getAmountRub()
+                saved.getAmountRub()
         );
-        return mapper.toResponse(refreshed);
+        return mapper.toResponse(saved);
+    }
+
+    private void abortCancellation(String workspacePublicId, String publicId, RuntimeException cause) {
+        UserEntity currentUser = currentUserService.currentUser();
+        WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        WithdrawalRequestEntity withdrawal = getRequiredEntityForUpdate(workspace, publicId);
+        if (withdrawal.getStatus() != WithdrawalStatus.CANCELLATION_PENDING) {
+            return;
+        }
+        withdrawal.setStatus(WithdrawalStatus.IN_WORK);
+        withdrawal.setLastError(cause.getMessage());
+        withdrawalRepository.save(withdrawal);
+        eventService.add(
+                withdrawal,
+                WithdrawalEventType.WITHDRAWAL_CANCELLATION_ABORTED,
+                "Withdrawal cancellation safety check failed",
+                currentUser
+        );
+        log.warn(
+                "Withdrawal cancellation safety check aborted: id={}, message={}",
+                withdrawal.getId(),
+                cause.getMessage()
+        );
+    }
+
+    private void awaitCancellationGracePeriod() {
+        Duration gracePeriod = businessProperties.getWithdrawalCancellationGracePeriod();
+        if (gracePeriod == null || gracePeriod.isZero() || gracePeriod.isNegative()) {
+            return;
+        }
+        try {
+            Thread.sleep(gracePeriod.toMillis());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Withdrawal cancellation safety check interrupted", exception);
+        }
+    }
+
+    private void rebuildPublicationSafely(WorkspaceEntity workspace) {
+        try {
+            advertisementManager.rebuildPublication(workspace);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Failed to restore managed advertisement after cancellation safety check: workspace={}, message={}",
+                    workspace.getPublicId(),
+                    exception.getMessage(),
+                    exception
+            );
+        }
     }
 
     @Transactional
@@ -381,22 +510,6 @@ public class WithdrawalService {
                 withdrawal.isRecipientCardTbank(),
                 withdrawal.isRequireSenderFirstParty()
         );
-    }
-
-    private boolean orderAmountMatches(WithdrawalRequestEntity withdrawal, BigDecimal orderAmountRub) {
-        if (orderAmountRub == null) {
-            return false;
-        }
-        BigDecimal minRub = withdrawal.getAmountMinRub() == null
-                ? withdrawal.getAmountRub()
-                : withdrawal.getAmountMinRub();
-        BigDecimal maxRub = withdrawal.getAmountMaxRub() == null
-                ? withdrawal.getAmountRub()
-                : withdrawal.getAmountMaxRub();
-        return minRub != null
-                && maxRub != null
-                && orderAmountRub.compareTo(minRub) >= 0
-                && orderAmountRub.compareTo(maxRub) <= 0;
     }
 
     private boolean effectiveThirdPartyTransfer(WithdrawalRequestEntity withdrawal) {
@@ -495,6 +608,25 @@ public class WithdrawalService {
     private WithdrawalRequestEntity getRequiredEntity(WorkspaceEntity workspace, String publicId) {
         return withdrawalRepository.findByWorkspaceAndPublicId(workspace, publicId)
                 .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + publicId));
+    }
+
+    private WithdrawalRequestEntity getRequiredEntityForUpdate(WorkspaceEntity workspace, String publicId) {
+        return withdrawalRepository.findForUpdateByWorkspaceAndPublicId(workspace, publicId)
+                .orElseThrow(() -> new EntityNotFoundException("Withdrawal request not found: " + publicId));
+    }
+
+    private <T> T inTransaction(Supplier<T> action) {
+        if (transactionTemplate == null) {
+            return action.get();
+        }
+        return transactionTemplate.execute(status -> action.get());
+    }
+
+    private record CancellationPreparation(
+            WorkspaceEntity workspace,
+            boolean safetyCheckRequired,
+            WithdrawalResponse response
+    ) {
     }
 
     private void ensureWorkspaceBybitAdConfigured(WorkspaceEntity workspace) {

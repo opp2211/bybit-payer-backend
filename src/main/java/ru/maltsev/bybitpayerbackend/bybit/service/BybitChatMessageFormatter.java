@@ -98,7 +98,8 @@ public class BybitChatMessageFormatter {
         Set<String> ownIds = new HashSet<>();
         addIfPresent(ownIds, identity.userId());
         addIfPresent(ownIds, identity.accountId());
-        if (!ownIds.isEmpty()) {
+        if (!ownIds.isEmpty()
+                && (StringUtils.hasText(message.userId()) || StringUtils.hasText(message.accountId()))) {
             return ownIds.contains(message.userId()) || ownIds.contains(message.accountId());
         }
         return StringUtils.hasText(identity.nickname()) && identity.nickname().equals(message.nickname());

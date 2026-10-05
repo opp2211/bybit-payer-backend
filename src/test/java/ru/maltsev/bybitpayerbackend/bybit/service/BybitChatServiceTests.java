@@ -23,6 +23,7 @@ import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageContentType;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageLogResponse;
 import ru.maltsev.bybitpayerbackend.bybit.dto.ChatMessageSenderType;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitApiException;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
@@ -136,6 +137,25 @@ class BybitChatServiceTests {
     }
 
     @Test
+    void backsOffAfterChatReadFailureAndKeepsDetailsAvailable() {
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setId(7L);
+        withdrawal.setBybitOrderId("order-7");
+        WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
+        WithdrawalEventService eventService = mock(WithdrawalEventService.class);
+        BybitGateway bybitGateway = mock(BybitGateway.class);
+        when(bybitGateway.fetchChatMessages("order-7"))
+                .thenThrow(new BybitApiException("chat API is unavailable"));
+
+        BybitChatService service = service(withdrawalRepository, eventService, bybitGateway);
+
+        assertThat(service.getMessages(withdrawal)).isEmpty();
+        assertThat(service.getMessages(withdrawal)).isEmpty();
+
+        verify(bybitGateway, times(1)).fetchChatMessages("order-7");
+    }
+
+    @Test
     void formatsSystemAndAttachmentMessagesAndHidesOrderCard() {
         WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
         withdrawal.setId(7L);
@@ -243,6 +263,21 @@ class BybitChatServiceTests {
                         "seller-account",
                         0,
                         ""
+                ),
+                new BybitChatMessage(
+                        "own-new-api",
+                        "sent through new chat API",
+                        "",
+                        1,
+                        Instant.parse("2026-06-09T12:02:00Z"),
+                        "str",
+                        "order-7",
+                        "",
+                        "ExPrime",
+                        "",
+                        "",
+                        0,
+                        ""
                 )
         ));
 
@@ -250,7 +285,11 @@ class BybitChatServiceTests {
         List<ChatMessageLogResponse> messages = service.getMessages(workspace, withdrawal);
 
         assertThat(messages).extracting(ChatMessageLogResponse::senderType)
-                .containsExactly(ChatMessageSenderType.SYSTEM, ChatMessageSenderType.USER);
+                .containsExactly(
+                        ChatMessageSenderType.SYSTEM,
+                        ChatMessageSenderType.USER,
+                        ChatMessageSenderType.USER
+                );
     }
 
     @Test

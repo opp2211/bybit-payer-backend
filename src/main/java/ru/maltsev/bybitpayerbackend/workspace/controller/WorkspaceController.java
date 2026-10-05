@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import ru.maltsev.bybitpayerbackend.workspace.dto.AddWorkspaceMemberRequest;
 import ru.maltsev.bybitpayerbackend.workspace.dto.CreateWorkspaceRequest;
+import ru.maltsev.bybitpayerbackend.workspace.dto.UpdateWorkspaceAiChatAgentRequest;
 import ru.maltsev.bybitpayerbackend.workspace.dto.WorkspaceMemberResponse;
 import ru.maltsev.bybitpayerbackend.workspace.dto.WorkspaceResponse;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceService;
@@ -41,6 +43,14 @@ public class WorkspaceController {
     @GetMapping("/{workspacePublicId}")
     public WorkspaceResponse getDetails(@PathVariable String workspacePublicId) {
         return workspaceService.getDetails(workspacePublicId);
+    }
+
+    @PutMapping("/{workspacePublicId}/ai-chat-agent")
+    public WorkspaceResponse updateAiChatAgent(
+            @PathVariable String workspacePublicId,
+            @Valid @RequestBody UpdateWorkspaceAiChatAgentRequest request
+    ) {
+        return workspaceService.updateAiChatAgent(workspacePublicId, request.enabled());
     }
 
     @DeleteMapping("/{workspacePublicId}")
