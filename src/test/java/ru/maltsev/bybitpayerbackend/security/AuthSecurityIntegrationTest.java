@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import tools.jackson.databind.ObjectMapper;
 
 import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
+import ru.maltsev.bybitpayerbackend.common.logging.RequestLoggingFilter;
 import ru.maltsev.bybitpayerbackend.security.config.SecurityConfig;
 import ru.maltsev.bybitpayerbackend.security.dto.CsrfTokenResponse;
 
@@ -57,7 +58,8 @@ class AuthSecurityIntegrationTest {
     @Test
     void rejectsProtectedApiWithoutAuthentication() throws Exception {
         mockMvc.perform(get("/api/system/status"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().exists(RequestLoggingFilter.REQUEST_ID_HEADER));
     }
 
     @Test

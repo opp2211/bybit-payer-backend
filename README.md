@@ -64,6 +64,14 @@ docker compose -f compose.prod.yml ps
 docker compose -f compose.prod.yml logs --tail=100 backend
 ```
 
+Для запросов, дошедших до backend, ответ содержит заголовок `X-Request-Id`.
+При ошибке 5xx или необработанном исключении тот же идентификатор записывается
+в лог вместе с методом и путём запроса, а также HTTP-статусом или типом
+исключения. Для поиска конкретного запроса возьмите `X-Request-Id` из Network
+в браузере и найдите его в выводе
+`docker compose -f compose.prod.yml logs --since=1h backend`.
+Не отправляйте вместе с логами cookie, пароли и ключи API.
+
 В production:
 
 - backend доступен на VPS только через `127.0.0.1:8080`;

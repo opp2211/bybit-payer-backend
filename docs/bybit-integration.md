@@ -137,6 +137,13 @@ as `Успешно` by substring matching.
 
 ## Notes
 
+Managed advertisement rebuilds propagate failures without logging them inside
+`rebuildPublication(workspace)`. An HTTP request logs an unhandled failure with
+its request ID, method, path, and stack trace. Background callers that continue
+after a failed workspace log the failure once at their catch boundary, including
+the workspace public ID and stack trace. Expected `BusinessException` failures
+in the all-workspace rebuild are logged as warnings without a stack trace.
+
 The gateway reads `/v5/p2p/item/info` before `/v5/p2p/item/update` and:
 
 - takes `paymentIds` from `paymentTerms[].id` (not from `payments`, which contains payment method type IDs);

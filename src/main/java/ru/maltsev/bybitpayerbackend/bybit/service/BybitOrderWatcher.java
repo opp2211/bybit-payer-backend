@@ -492,10 +492,7 @@ public class BybitOrderWatcher {
         try {
             advertisementManager.rebuildPublication();
         } catch (RuntimeException exception) {
-            log.warn(
-                    "Managed advertisement rebuild failed after order state commit: {}",
-                    exception.getMessage()
-            );
+            log.error("Managed advertisement rebuild failed after order state commit", exception);
         }
     }
 
@@ -503,10 +500,10 @@ public class BybitOrderWatcher {
         try {
             advertisementManager.rebuildPublication(workspace);
         } catch (RuntimeException exception) {
-            log.warn(
-                    "Managed advertisement rebuild failed after order state commit: workspace={}, message={}",
+            log.error(
+                    "Managed advertisement rebuild failed after order state commit: workspace={}",
                     workspace.getPublicId(),
-                    exception.getMessage()
+                    exception
             );
         }
     }

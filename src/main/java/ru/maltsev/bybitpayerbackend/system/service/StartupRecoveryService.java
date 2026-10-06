@@ -25,7 +25,7 @@ public class StartupRecoveryService implements ApplicationRunner {
             advertisementManager.rebuildPublication();
             log.info("Startup publication recovery completed");
         } catch (Exception exception) {
-            log.warn("Startup publication recovery failed: {}", exception.getMessage());
+            log.error("Startup publication recovery failed", exception);
         }
     }
 }

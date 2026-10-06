@@ -16,14 +16,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitManagedAdStateEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.AdUpdateCommand;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitApiException;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitManagedAdStateRepository;
 import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
 import ru.maltsev.bybitpayerbackend.config.BusinessProperties;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
+import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
@@ -33,6 +41,43 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 class AdvertisementManagerTests {
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsPublicationFailureOnlyWhenBackgroundLoopHandlesIt(CapturedOutput output) {
+        WorkspaceEntity workspace = new WorkspaceEntity();
+        workspace.setId(1L);
+        workspace.setPublicId("12538F2");
+        WorkspaceRepository workspaceRepository = mock(WorkspaceRepository.class);
+        WorkspaceSecretService workspaceSecretService = mock(WorkspaceSecretService.class);
+        BybitApiException failure = new BybitApiException("Bybit API rate limit exceeded");
+        when(workspaceRepository.findByEnabledTrueAndDeletedAtIsNullOrderByCreatedAtAscIdAsc())
+                .thenReturn(List.of(workspace));
+        when(workspaceSecretService.bybitCredentials(workspace)).thenThrow(failure);
+
+        AdvertisementManager manager = new AdvertisementManager(
+                mock(WithdrawalRequestRepository.class),
+                mock(BybitManagedAdStateRepository.class),
+                workspaceRepository,
+                mock(WithdrawalEventService.class),
+                mock(BybitGateway.class),
+                new BybitCredentialsContext(),
+                workspaceSecretService,
+                new BybitProperties(),
+                new BusinessProperties(),
+                new AdvertisementDescriptionBuilder(),
+                Clock.fixed(Instant.parse("2026-06-09T12:00:00Z"), ZoneOffset.UTC)
+        );
+
+        assertThatThrownBy(() -> manager.rebuildPublication(workspace)).isSameAs(failure);
+        assertThat(output.getOut()).doesNotContain("Managed advertisement synchronization failed");
+
+        manager.rebuildPublication();
+
+        assertThat(output.getOut())
+                .containsOnlyOnce("Managed advertisement synchronization failed: workspace=12538F2")
+                .contains("BybitApiException: Bybit API rate limit exceeded");
+    }
 
     @Test
     void buildsSingleWithdrawalPreviewFromCurrentRate() {

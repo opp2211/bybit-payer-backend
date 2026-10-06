@@ -114,11 +114,19 @@ public class AdvertisementManager {
         for (WorkspaceEntity workspace : workspaceRepository.findByEnabledTrueAndDeletedAtIsNullOrderByCreatedAtAscIdAsc()) {
             try {
                 rebuildPublication(workspace);
-            } catch (RuntimeException exception) {
+            } catch (BusinessException exception) {
                 log.warn(
-                        "Managed advertisement synchronization failed for workspace {}: {}",
+                        "Managed advertisement synchronization rejected: workspace={}, status={}, message={}, details={}",
                         workspace.getPublicId(),
-                        exception.getMessage()
+                        exception.getStatus(),
+                        exception.getMessage(),
+                        exception.getDetails()
+                );
+            } catch (RuntimeException exception) {
+                log.error(
+                        "Managed advertisement synchronization failed: workspace={}",
+                        workspace.getPublicId(),
+                        exception
                 );
             }
         }
@@ -154,16 +162,6 @@ public class AdvertisementManager {
                         snapshot.quantityUsdt()
                 );
             });
-        } catch (BusinessException exception) {
-            log.warn(
-                    "Managed advertisement synchronization rejected: message={}, details={}",
-                    exception.getMessage(),
-                    exception.getDetails()
-            );
-            throw exception;
-        } catch (RuntimeException exception) {
-            log.error("Managed advertisement synchronization failed: {}", exception.getMessage(), exception);
-            throw exception;
         } finally {
             lock.unlock();
         }

@@ -9,6 +9,10 @@ server:
       cookie:
         secure: true
 
+logging:
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}]"
+
 auth:
   remember-me-validity: ${AUTH_REMEMBER_ME_VALIDITY:30d}
   remember-me-secure: true
