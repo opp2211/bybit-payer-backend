@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -308,6 +309,20 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     @Override
+    public boolean isManagedAdPublished(String bybitAdId) {
+        JsonNode details = getManagedAdDetails(bybitAdId);
+        JsonNode status = details.path("status");
+        if (!status.canConvertToInt() && !status.isTextual()) {
+            throw new BybitApiException("Bybit managed ad status is missing: " + bybitAdId);
+        }
+        int code = status.asInt(-1);
+        if (code < 0) {
+            throw new BybitApiException("Bybit managed ad status is invalid: " + bybitAdId);
+        }
+        return code == AD_STATUS_ONLINE;
+    }
+
+    @Override
     public void sendChatMessage(String bybitOrderId, String messageUuid, String messageText) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("message", messageText);
@@ -414,29 +429,38 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     private JsonNode sendWithRetry(String method, String path, String queryString, String bodyJson) {
-        int attempts = Math.max(1, properties.getRetryMaxAttempts());
-        RuntimeException lastException = null;
-        for (int attempt = 1; attempt <= attempts; attempt++) {
+        int regularFailures = 0;
+        int rateLimitFailures = 0;
+        int attempt = 1;
+        while (true) {
             try {
                 return send(method, path, queryString, bodyJson);
             } catch (RuntimeException exception) {
-                lastException = exception;
-                boolean retryable = isRetryable(exception);
-                if (attempt == attempts || !retryable) {
-                    break;
+                if (exception instanceof BybitApiException bybitException
+                        && Integer.valueOf(10006).equals(bybitException.getApiCode())) {
+                    rateLimitFailures++;
+                    int maxAttempts = Math.max(1, properties.getRateLimitRetryMaxAttempts());
+                    if (rateLimitFailures >= maxAttempts || attempt >= maxAttempts) {
+                        throw exception;
+                    }
+                    log.warn("Bybit API rate limit, retrying: method={}, path={}, attempt={}, maxAttempts={}",
+                            method, path, rateLimitFailures, maxAttempts);
+                    sleepBeforeRateLimitRetry();
+                } else if (isRetryable(exception)) {
+                    regularFailures++;
+                    int maxAttempts = Math.max(1, properties.getRetryMaxAttempts());
+                    if (regularFailures >= maxAttempts) {
+                        throw exception;
+                    }
+                    log.warn("Bybit API request failed, retrying: method={}, path={}, attempt={}, maxAttempts={}, message={}",
+                            method, path, attempt, maxAttempts, exception.getMessage());
+                    sleepBeforeRetry(regularFailures);
+                } else {
+                    throw exception;
                 }
-                log.warn(
-                        "Bybit API request failed, retrying: method={}, path={}, attempt={}, maxAttempts={}, message={}",
-                        method,
-                        path,
-                        attempt,
-                        attempts,
-                        exception.getMessage()
-                );
-                sleepBeforeRetry(attempt);
+                attempt++;
             }
         }
-        throw lastException == null ? new BybitApiException("Bybit request failed") : lastException;
     }
 
     private JsonNode send(String method, String path, String queryString, String bodyJson) {
@@ -501,7 +525,8 @@ public class HttpBybitGateway implements BybitGateway {
 
         String retMsg = root.has("retMsg") ? root.path("retMsg").asText() : root.path("ret_msg").asText();
         throw new BybitApiException(
-                "Bybit API error for " + path + ": " + retCodeNode.asText() + " " + retMsg
+                "Bybit API error for " + path + ": " + retCodeNode.asText() + " " + retMsg,
+                retCodeNode.asInt(-1)
         );
     }
 
@@ -546,6 +571,18 @@ public class HttpBybitGateway implements BybitGateway {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new BybitApiException("Bybit retry interrupted", exception);
+        }
+    }
+
+    private void sleepBeforeRateLimitRetry() {
+        int delayMs = Math.max(0, properties.getRateLimitRetryDelayMs());
+        int jitterMs = Math.max(0, properties.getRateLimitRetryJitterMs());
+        long waitMs = (long) delayMs + ThreadLocalRandom.current().nextLong((long) jitterMs + 1);
+        try {
+            Thread.sleep(waitMs);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BybitApiException("Bybit rate limit retry interrupted", exception);
         }
     }
 

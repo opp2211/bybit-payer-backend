@@ -566,6 +566,15 @@ public class AdvertisementManager {
         BybitManagedAdStateEntity state = adStateRepository.findByWorkspace(workspace)
                 .orElseGet(() -> newAdState(workspace));
         boolean wasPublished = state.isPublished();
+        AdUpdateCommand command = new AdUpdateCommand(
+                workspace.getBybitP2pAdId(), snapshot.published(), snapshot.rate(), snapshot.minRub(),
+                snapshot.maxRub(), snapshot.quantityUsdt(), snapshot.description()
+        );
+        if (snapshot.published()) {
+            bybitGateway.updateManagedAd(command);
+        } else if (wasPublished && StringUtils.hasText(workspace.getBybitP2pAdId())) {
+            bybitGateway.unpublishManagedAd(workspace.getBybitP2pAdId());
+        }
         state.setWorkspace(workspace);
         state.setBybitAdId(workspace.getBybitP2pAdId());
         state.setPublished(snapshot.published());
@@ -581,21 +590,10 @@ public class AdvertisementManager {
         state.setLastDescription(snapshot.description());
         state.setLastUpdatedAt(now);
         state.setLastError(null);
-
-        AdUpdateCommand command = new AdUpdateCommand(
-                state.getBybitAdId(),
-                state.isPublished(),
-                state.getLastRate(),
-                state.getLastMinRub(),
-                state.getLastMaxRub(),
-                state.getLastQuantityUsdt(),
-                state.getLastDescription()
-        );
-        if (snapshot.published()) {
-            bybitGateway.updateManagedAd(command);
-        } else if (wasPublished && StringUtils.hasText(state.getBybitAdId())) {
-            bybitGateway.unpublishManagedAd(state.getBybitAdId());
-        }
+        state.setUnpublishPending(false);
+        state.setUnpublishPendingSince(null);
+        state.setUnpublishNextAttemptAt(null);
+        state.setUnpublishFailureCount(0);
 
         adStateRepository.save(state);
     }
@@ -609,6 +607,15 @@ public class AdvertisementManager {
                 .findFirst()
                 .orElseGet(this::newLegacyAdState);
         boolean wasPublished = state.isPublished();
+        AdUpdateCommand command = new AdUpdateCommand(
+                bybitProperties.getP2pAdId(), snapshot.published(), snapshot.rate(), snapshot.minRub(),
+                snapshot.maxRub(), snapshot.quantityUsdt(), snapshot.description()
+        );
+        if (snapshot.published()) {
+            bybitGateway.updateManagedAd(command);
+        } else if (wasPublished && StringUtils.hasText(bybitProperties.getP2pAdId())) {
+            bybitGateway.unpublishManagedAd(bybitProperties.getP2pAdId());
+        }
         state.setBybitAdId(bybitProperties.getP2pAdId());
         state.setPublished(snapshot.published());
         state.setLastRate(snapshot.rate());
@@ -623,21 +630,10 @@ public class AdvertisementManager {
         state.setLastDescription(snapshot.description());
         state.setLastUpdatedAt(now);
         state.setLastError(null);
-
-        AdUpdateCommand command = new AdUpdateCommand(
-                state.getBybitAdId(),
-                state.isPublished(),
-                state.getLastRate(),
-                state.getLastMinRub(),
-                state.getLastMaxRub(),
-                state.getLastQuantityUsdt(),
-                state.getLastDescription()
-        );
-        if (snapshot.published()) {
-            bybitGateway.updateManagedAd(command);
-        } else if (wasPublished && StringUtils.hasText(state.getBybitAdId())) {
-            bybitGateway.unpublishManagedAd(state.getBybitAdId());
-        }
+        state.setUnpublishPending(false);
+        state.setUnpublishPendingSince(null);
+        state.setUnpublishNextAttemptAt(null);
+        state.setUnpublishFailureCount(0);
 
         adStateRepository.save(state);
     }
@@ -661,6 +657,16 @@ public class AdvertisementManager {
 
     private ReentrantLock lockFor(WorkspaceEntity workspace) {
         return locks.computeIfAbsent(workspace.getId(), ignored -> new ReentrantLock());
+    }
+
+    public void withPublicationLock(WorkspaceEntity workspace, Runnable action) {
+        ReentrantLock lock = lockFor(workspace);
+        lock.lock();
+        try {
+            action.run();
+        } finally {
+            lock.unlock();
+        }
     }
 
     private int initialRatePosition() {

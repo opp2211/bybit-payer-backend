@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +15,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,6 +43,43 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 class AdvertisementManagerTests {
+
+    @Test
+    void failedUnpublicationDoesNotMarkManagedStateUnpublished() {
+        WorkspaceEntity workspace = new WorkspaceEntity();
+        workspace.setId(1L);
+        workspace.setPublicId("workspace-1");
+        workspace.setBybitP2pAdId("ad-123");
+        BybitManagedAdStateEntity state = new BybitManagedAdStateEntity();
+        state.setPublished(true);
+        state.setLastRate(new BigDecimal("80"));
+        WorkspaceRepository workspaces = mock(WorkspaceRepository.class);
+        BybitManagedAdStateRepository states = mock(BybitManagedAdStateRepository.class);
+        BybitGateway gateway = mock(BybitGateway.class);
+        WorkspaceSecretService secrets = mock(WorkspaceSecretService.class);
+        when(workspaces.findByEnabledTrueAndDeletedAtIsNullOrderByCreatedAtAscIdAsc())
+                .thenReturn(List.of(workspace));
+        when(states.findByWorkspace(workspace)).thenReturn(Optional.of(state));
+        when(gateway.fetchReferenceRate(15)).thenReturn(new BigDecimal("90"));
+        when(gateway.fetchReferenceRate(7)).thenReturn(new BigDecimal("88"));
+        when(gateway.fetchAvailableUsdtBalance()).thenReturn(new BigDecimal("1000"));
+        doThrow(new BybitApiException("10006"))
+                .when(gateway).unpublishManagedAd("ad-123");
+
+        AdvertisementManager manager = new AdvertisementManager(
+                mock(WithdrawalRequestRepository.class), states, workspaces,
+                mock(WithdrawalEventService.class), gateway, new BybitCredentialsContext(), secrets,
+                new BybitProperties(), new BusinessProperties(), new AdvertisementDescriptionBuilder(),
+                Clock.fixed(Instant.parse("2026-10-13T00:00:00Z"), ZoneOffset.UTC)
+        );
+
+        manager.refreshPublicationRate();
+
+        assertThat(state.isPublished()).isTrue();
+        assertThat(state.getLastRate()).isEqualByComparingTo("80");
+        verify(gateway).unpublishManagedAd("ad-123");
+        verify(states, never()).save(state);
+    }
 
     @Test
     @ExtendWith(OutputCaptureExtension.class)

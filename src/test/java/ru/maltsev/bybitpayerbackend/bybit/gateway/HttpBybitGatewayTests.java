@@ -27,6 +27,50 @@ class HttpBybitGatewayTests {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void retriesBybitRateLimitUntilTenthRequestSucceeds() throws Exception {
+        assertRateLimitAttempts(9, 10, false);
+    }
+
+    @Test
+    void throwsAfterTenBybitRateLimitResponses() throws Exception {
+        assertRateLimitAttempts(10, 10, true);
+    }
+
+    private void assertRateLimitAttempts(int failuresBeforeSuccess, int expectedRequests, boolean expectFailure)
+            throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v5/p2p/item/online", exchange -> {
+            if (requests.incrementAndGet() <= failuresBeforeSuccess) {
+                respond(exchange, "{\"retCode\":10006,\"retMsg\":\"Too many visits\",\"result\":{}}");
+            } else {
+                respond(exchange, "{\"retCode\":0,\"retMsg\":\"OK\",\"result\":{\"items\":[{\"price\":\"90\"}]}}");
+            }
+        });
+        server.start();
+        try {
+            BybitProperties properties = properties();
+            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+            properties.setApiKey("test-api-key");
+            properties.setApiSecret("test-api-secret");
+            properties.setP2pAdId("ad-123");
+            properties.setRateLimitRetryDelayMs(0);
+            properties.setRateLimitRetryJitterMs(0);
+            HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
+            if (expectFailure) {
+                assertThatThrownBy(() -> gateway.fetchReferenceRate(1))
+                        .isInstanceOf(BybitApiException.class)
+                        .hasMessageContaining("10006");
+            } else {
+                assertThat(gateway.fetchReferenceRate(1)).isEqualByComparingTo("90");
+            }
+            assertThat(requests).hasValue(expectedRequests);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void reportsMissingConfigurationWhenBaseUrlIsBlank() {
         BybitProperties properties = properties();
         properties.setApiKey("test-api-key");

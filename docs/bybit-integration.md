@@ -97,6 +97,33 @@ The default order id is `2074865336971419648`. It can be overridden with
 `-Dbybit.chat.order-id=<orderId>`. Pagination uses `-Dbybit.chat.page-size=30`
 and `-Dbybit.chat.max-pages=20` by default.
 
+## Rate-limit recovery and ad safety
+
+JSON `retCode=10006` has its own retry policy for every signed Bybit request. The gateway
+tries at most 10 requests in total with a 200-250 ms pause between attempts by default.
+`BYBIT_RATE_LIMIT_RETRY_MAX_ATTEMPTS`, `BYBIT_RATE_LIMIT_RETRY_DELAY_MS`, and
+`BYBIT_RATE_LIMIT_RETRY_JITTER_MS` configure this policy. A successful response stops
+the loop immediately; the tenth `10006` is propagated. Existing HTTP 429/5xx and I/O
+retry settings remain separate. The total elapsed time also includes Bybit response
+latency and the gateway's request throttle.
+
+Managed ad state is updated only after the Bybit mutation succeeds. If no withdrawal
+remains `IN_WORK`, the ad recovery task checks the remote ad status and keeps trying to
+unpublish an online ad. A failed attempt sets persistent `unpublish_pending` and
+`last_error`; retries continue after restarts with delays growing from 10 to 60 seconds.
+The task runs every `BYBIT_AD_UNPUBLISH_RETRY_INTERVAL_SECONDS` (10 by default),
+independently of reference-rate and balance requests. It audits the remote status
+every 30 seconds even when the local state says the ad is offline, to repair
+local/remote mismatches including a failed database transaction after a Bybit call.
+After a successful cancel it reads the remote status again before clearing the pending
+state. `GET /api/workspaces/{workspacePublicId}/system/status` exposes the pending
+flag, its start time, and last unpublish error for an operator warning. Order polling
+continues while unpublication is pending. A persistent Bybit outage still requires an
+operator to inspect and, if necessary, remove the ad manually.
+
+`POST /v5/p2p/item/info` is also used by ad recovery to check whether the managed ad
+is online (status `10`).
+
 ## Used Endpoints
 
 - `POST /v5/p2p/item/online` — get public ads and take the configured 1-based ad index for rate.

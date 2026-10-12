@@ -73,4 +73,19 @@ public class BybitManagedAdStateEntity {
 
     @Column(name = "last_error")
     private String lastError;
+
+    @Column(name = "unpublish_pending", nullable = false)
+    private boolean unpublishPending;
+
+    @Column(name = "unpublish_pending_since")
+    private Instant unpublishPendingSince;
+
+    @Column(name = "unpublish_last_attempt_at")
+    private Instant unpublishLastAttemptAt;
+
+    @Column(name = "unpublish_next_attempt_at")
+    private Instant unpublishNextAttemptAt;
+
+    @Column(name = "unpublish_failure_count", nullable = false)
+    private int unpublishFailureCount;
 }

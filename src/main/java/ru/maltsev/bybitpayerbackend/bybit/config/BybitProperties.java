@@ -22,6 +22,9 @@ public class BybitProperties {
     private int rateLimitRequestsPerSecond = 10;
     private int retryMaxAttempts = 3;
     private List<Integer> retryBackoffSeconds = List.of(1, 2, 4);
+    private int rateLimitRetryMaxAttempts = 10;
+    private int rateLimitRetryDelayMs = 200;
+    private int rateLimitRetryJitterMs = 50;
     private BigDecimal defaultMinRub = new BigDecimal("1000");
     private BigDecimal defaultMaxRub = new BigDecimal("10000");
     private String rateSourceSide = "BUY";

@@ -49,6 +49,21 @@ class SystemStatusServiceTests {
     }
 
     @Test
+    void exposesPendingAdUnpublicationSeparatelyFromApiAvailability() {
+        BybitManagedAdStateEntity state = adState();
+        state.setUnpublishPending(true);
+        state.setUnpublishPendingSince(NOW.minusSeconds(30));
+        state.setLastError("Bybit 10006");
+        when(advertisementManager.getCurrentState()).thenReturn(state);
+
+        SystemStatusResponse response = service.getStatus();
+
+        assertThat(response.adUnpublishPending()).isTrue();
+        assertThat(response.adUnpublishPendingSince()).isEqualTo(NOW.minusSeconds(30));
+        assertThat(response.adUnpublishLastError()).isEqualTo("Bybit 10006");
+    }
+
+    @Test
     void publishesRefreshedBybitStatus() {
         when(bybitGateway.checkReadiness()).thenReturn(new BybitReadiness(
                 true,

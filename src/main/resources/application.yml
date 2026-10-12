@@ -54,6 +54,9 @@ bybit:
   rate-limit-requests-per-second: ${BYBIT_RATE_LIMIT_REQUESTS_PER_SECOND:10}
   retry-max-attempts: ${BYBIT_RETRY_MAX_ATTEMPTS:3}
   retry-backoff-seconds: ${BYBIT_RETRY_BACKOFF_SECONDS:1,2,4}
+  rate-limit-retry-max-attempts: ${BYBIT_RATE_LIMIT_RETRY_MAX_ATTEMPTS:10}
+  rate-limit-retry-delay-ms: ${BYBIT_RATE_LIMIT_RETRY_DELAY_MS:200}
+  rate-limit-retry-jitter-ms: ${BYBIT_RATE_LIMIT_RETRY_JITTER_MS:50}
   default-min-rub: ${BYBIT_DEFAULT_MIN_RUB:1000}
   default-max-rub: ${BYBIT_DEFAULT_MAX_RUB:10000}
   rate-source-side: ${BYBIT_RATE_SOURCE_SIDE:BUY}
@@ -64,6 +67,7 @@ bybit:
   rate-source-ad-index: ${BYBIT_RATE_SOURCE_AD_INDEX:15}
   rate-source-min-ad-index: ${BYBIT_RATE_SOURCE_MIN_AD_INDEX:7}
   ad-rate-refresh-interval: ${BYBIT_AD_RATE_REFRESH_INTERVAL_MINUTES:5}m
+  ad-unpublish-retry-interval: ${BYBIT_AD_UNPUBLISH_RETRY_INTERVAL_SECONDS:10}s
   order-source-side: ${BYBIT_ORDER_SOURCE_SIDE:SELL}
   order-page-size: ${BYBIT_ORDER_PAGE_SIZE:30}
   chat-message-page-size: ${BYBIT_CHAT_MESSAGE_PAGE_SIZE:30}

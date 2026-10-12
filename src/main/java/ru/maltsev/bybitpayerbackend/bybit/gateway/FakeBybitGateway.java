@@ -160,6 +160,13 @@ public class FakeBybitGateway implements BybitGateway {
     }
 
     @Override
+    public boolean isManagedAdPublished(String bybitAdId) {
+        ensureAdId(bybitAdId);
+        SimulatedAd ad = ads.get(bybitAdId);
+        return ad != null && ad.published();
+    }
+
+    @Override
     public void sendChatMessage(String bybitOrderId, String messageUuid, String messageText) {
         SimulatedOrder order = requireOrderForGateway(bybitOrderId);
         appendMessage(order, messageUuid, messageText, SELLER_USER_ID, SELLER_ACCOUNT_ID, SELLER_NICKNAME, "merchant");

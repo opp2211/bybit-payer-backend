@@ -26,6 +26,8 @@ public interface BybitGateway {
 
     void unpublishManagedAd(String bybitAdId);
 
+    boolean isManagedAdPublished(String bybitAdId);
+
     void sendChatMessage(String bybitOrderId, String messageUuid, String messageText);
 
     void releaseOrder(String bybitOrderId);

@@ -1471,6 +1471,16 @@
           "adPublished" : {
             "type" : "boolean"
           },
+          "adUnpublishPending" : {
+            "type" : "boolean"
+          },
+          "adUnpublishPendingSince" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "adUnpublishLastError" : {
+            "type" : "string"
+          },
           "currentRate" : {
             "type" : "number"
           },
