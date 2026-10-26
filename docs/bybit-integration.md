@@ -152,6 +152,11 @@ requirement flag, third-party transfer flag, and for card-number withdrawals the
 amounts inside the active group are still merged as `2420 / 5000`. `TBANK_AUTO` can publish
 either `SBP` or `CARD_NUMBER` groups and uses automatic mail receipt verification.
 `SBERBANK` publishes the `ACCOUNT_NUMBER` group, while `ANY_BANK` publishes the `SBP` group.
+The ad intro comes from `PayerBankType`, and its payment-method tail comes from
+`WithdrawalPaymentRules`. Bank names in generated ad text use Latin initials:
+`T-банк` and `Sбербанк`, including their inflected forms and the `SБЕР-SБЕР` tail.
+Bank titles, incoming values, receipt validation, and UI labels retain their
+existing spelling.
 
 When `requireSenderFirstParty` is enabled, the managed ad description starts with
 `Работаю только с 1 лицами (Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit)`.

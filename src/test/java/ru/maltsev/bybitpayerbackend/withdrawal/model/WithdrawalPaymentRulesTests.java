@@ -25,7 +25,13 @@ class WithdrawalPaymentRulesTests {
                 WithdrawalMethod.CARD_NUMBER,
                 true,
                 true
-        )).isEqualTo("Принимаю на Т-банк 3 лица по номеру карты (СБП нет!)");
+        )).isEqualTo("Принимаю на T-банк 3 лица по номеру карты (СБП нет!)");
+        assertThat(WithdrawalPaymentRules.advertisementTail(
+                PayerBankType.TBANK_AUTO,
+                WithdrawalMethod.CARD_NUMBER,
+                false,
+                true
+        )).isEqualTo("Принимаю на личную карту T-банка / карту жены, только по номеру карты (СБП нет!)");
         assertThat(WithdrawalPaymentRules.advertisementTail(
                 PayerBankType.TBANK_AUTO,
                 WithdrawalMethod.CARD_NUMBER,
@@ -38,7 +44,13 @@ class WithdrawalPaymentRulesTests {
                 WithdrawalMethod.ACCOUNT_NUMBER,
                 true,
                 false
-        )).isEqualTo("Принимаю СБЕР-СБЕР по номеру счета на 3 лицо");
+        )).isEqualTo("Принимаю SБЕР-SБЕР по номеру счета на 3 лицо");
+        assertThat(WithdrawalPaymentRules.advertisementTail(
+                PayerBankType.SBERBANK,
+                WithdrawalMethod.ACCOUNT_NUMBER,
+                false,
+                false
+        )).isEqualTo("Принимаю SБЕР-SБЕР по номеру счета на личную карту / карту жены");
         assertThat(WithdrawalPaymentRules.advertisementTail(
                 PayerBankType.ANY_BANK,
                 WithdrawalMethod.SBP,

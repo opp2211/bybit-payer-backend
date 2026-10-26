@@ -74,21 +74,21 @@ public final class WithdrawalPaymentRules {
                     : "Принимаю на личную карту / карту жены по СБП";
             case CARD_NUMBER -> cardNumberAdvertisementTail(thirdPartyTransfer, recipientCardTbank);
             case ACCOUNT_NUMBER -> thirdPartyTransfer
-                    ? "Принимаю СБЕР-СБЕР по номеру счета на 3 лицо"
-                    : "Принимаю СБЕР-СБЕР по номеру счета на личную карту / карту жены";
+                    ? "Принимаю SБЕР-SБЕР по номеру счета на 3 лицо"
+                    : "Принимаю SБЕР-SБЕР по номеру счета на личную карту / карту жены";
         };
     }
 
     private static String cardNumberAdvertisementTail(boolean thirdPartyTransfer, boolean recipientCardTbank) {
         if (thirdPartyTransfer && recipientCardTbank) {
-            return "Принимаю на Т-банк 3 лица по номеру карты (СБП нет!)";
+            return "Принимаю на T-банк 3 лица по номеру карты (СБП нет!)";
         }
         if (thirdPartyTransfer) {
             return "Принимаю на карту 3 лица по номеру карты (СБП нет!) "
                     + "(Возможна комиссия, если у вас закончился лимит бесплатных переводов)";
         }
         if (recipientCardTbank) {
-            return "Принимаю на личную карту Т-банка / карту жены, только по номеру карты (СБП нет!)";
+            return "Принимаю на личную карту T-банка / карту жены, только по номеру карты (СБП нет!)";
         }
         return "Принимаю на личную карту / карту жены по номеру карты (СБП нет!) "
                 + "(Возможна комиссия, если у вас закончился лимит бесплатных переводов)";
