@@ -76,9 +76,6 @@ public class WorkspaceEntity {
     @Column(name = "enabled", nullable = false)
     private boolean enabled = true;
 
-    @Column(name = "ai_chat_agent_enabled", nullable = false)
-    private boolean aiChatAgentEnabled;
-
     @Column(name = "deleted_at")
     private Instant deletedAt;
 

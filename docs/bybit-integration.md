@@ -160,8 +160,7 @@ existing spelling.
 
 When `requireSenderFirstParty` is enabled, the managed ad description starts with
 `Работаю только с 1 лицами (Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit)`.
-The flag is stored on the withdrawal for future chat/agent logic; currently it only changes
-the managed ad text and preview.
+The flag is stored on the withdrawal and changes the managed ad text and preview.
 
 Receipt verification must match the parsed status as a complete normalized value before calling
 `/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated
@@ -241,77 +240,13 @@ cancelled. An order already bound to another withdrawal never blocks this cancel
 merely because its RUB amount is the same.
 
 When an order is marked paid, only `TBANK_AUTO` withdrawals with `SBP` or `CARD_NUMBER`
-start mail receipt verification and send the receipt email to chat. `SBERBANK` and
+start mail receipt verification. `SBERBANK` and
 `ANY_BANK` move to `PAYMENT_VERIFICATION`, are marked as requiring operator attention,
 skip mailbox polling, and must be released manually.
 
-Each workspace stores its own AI chat agent setting. New and migrated workspaces start with the
-setting disabled. Binding a Bybit order while the setting is disabled immediately sends the fixed
-requisite messages, does not create an AI session, and does not call OpenAI. Binding while the
-setting is enabled starts an AI session instead. Enabling the workspace setting is rejected when
-`OPENAI_API_KEY` is empty.
-
-Changing the workspace setting only affects orders bound afterwards. Existing AI sessions keep
-working if the workspace setting is later disabled. While an order's AI session is enabled, the
-manual composer is locked. Any workspace member can disable that session once; this immediately
-unlocks manual chat and cannot be reversed. If an OpenAI response is already in progress, the
-persisted session flag is locked and checked again before dispatch so no AI message is sent after
-the disable request completes. Orders bound while the workspace setting was disabled have no AI
-session and cannot enable one later.
-
-The agent can read the withdrawal, order, complete Bybit chat, requisites, and receipt-check
-state. Its structured actions are limited to sending chat messages, requesting backend-controlled
-requisite delivery, waiting, asking the counterparty to cancel, or handing the conversation to an
-operator. It never calls release, cancel, or ad-management actions. Backend validation rejects
-early requisite disclosure and invalid actions; after one corrective model retry, the session is
-handed to an operator.
-Backend also blocks a normal payment-question reply when the latest counterparty messages clearly
-ask to cancel or say that payment will not happen; the model must correct to cancellation or
-operator handoff.
-If an operator has already started the chat before the AI session is created, the agent skips the
-fixed hello message and continues from the existing conversation. Backend validation also forces
-the model to persist structured facts, such as the payer bank, before moving to the next
-requirement, and blocks "did you really send it?" questions after the counterparty has attached a
-payment-proof file.
-AI sessions are scoped to the bound `bybit_order_id`. If a withdrawal returns to publication
-after order cancellation and later receives another Bybit order, the previous session is
-completed and a separate clean session is created for the replacement order. Operator actions
-and polling resolve the session that matches the withdrawal's current order, so state and model
-history from the cancelled order cannot affect the new conversation.
-
-Before requisites are sent, the agent confirms the withdrawal conditions with the counterparty:
-
-- sender first-party confirmation when `requireSenderFirstParty` is enabled;
-- payer bank for every withdrawal;
-- official T-Bank receipt to the workspace `receiptEmail` for `TBANK_AUTO`;
-- optional official T-Bank receipt for `ANY_BANK` counterparties who say they pay from T-Bank;
-- third-party transfer consent when the withdrawal receives payment to a third party.
-
-After all mandatory conditions are confirmed, backend sends the model-generated lead-in, then the
-model's `finalWarning`, then the exact copyable requisite values. Phone, card, account number, and
-receipt email are sent as separate messages; bank and recipient name may be combined.
-`finalWarning` is recorded as `finalWarningSent`. This warning does not ask the counterparty to
-confirm anything and is not a checklist of the agreed conditions. It tells the counterparty in
-advance to select exactly the recipient bank shown in the requisites: even a transfer to the
-correct phone number but the wrong bank may be lost, and the seller will not be able to help return
-it.
-
-When a mandatory condition is rejected, the agent does not send requisites and asks the
-counterparty to cancel the order, while marking the withdrawal as requiring operator attention.
-If the agent cannot classify the conversation, OpenAI is unavailable, a receipt is invalid, or
-the counterparty repeatedly asks to release without a valid receipt, it hands off to the operator.
-Five minutes of inactivity after requisite delivery can trigger a model-generated follow-up. For
-automatic T-Bank receipt verification, 90 seconds in `PAYMENT_VERIFICATION` without a valid receipt
-can trigger a check that the counterparty actually sent the payment. The model may choose `WAIT`
-when either reminder would be inappropriate in the current conversation.
-
-Only newly observed `COUNTERPARTY` messages trigger a reply. Own bot messages, operator messages,
-and system messages remain in the context but never trigger another model call by themselves. The
-agent sends the global prompt, application state, and ordered conversation to `gpt-5.6-terra`.
-The editable global prompt lives in `src/main/resources/ai/chat-agent-system-prompt.md` and is
-loaded once when the application starts.
-Once more than 29 unsummarized messages accumulate, older messages are summarized by the same model;
-the summary is persisted on the AI session and supplied before the recent messages on later calls.
+When a new order is bound, the backend sends the greeting and fixed requisite messages.
+For automatic receipt verification, it also sends the workspace receipt email. Operators
+can send additional messages from the withdrawal details.
 
 For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
 from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.
@@ -325,8 +260,7 @@ four card digits and the parsed recipient name, because T-Bank receipts show nam
 as `Имя Ф.`. Non-T-Bank card withdrawals match the masked card format
 `123456******1234`.
 
-Raw chat history is not persisted locally; only AI session state and the compact conversation
-summary are stored. Outgoing messages are sent directly to
+Outgoing messages are sent directly to
 `/v5/p2p/chat/message/send_v1`, and withdrawal details read chat history from
 `/v5/p2p/chat/message/listpage_v1` through `BybitChatService`. A chat `sessionId` is resolved once
 from the order's `targetUserMaskId` and reused. The service keeps an in-memory cache per

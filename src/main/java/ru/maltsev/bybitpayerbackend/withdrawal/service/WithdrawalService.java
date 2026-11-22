@@ -15,8 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
-import ru.maltsev.bybitpayerbackend.ai.dto.AiChatAgentResponse;
-import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bank.service.BankService;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
@@ -75,7 +73,6 @@ public class WithdrawalService {
     private final WorkspaceSecretService workspaceSecretService;
     private final PublicIdGenerator publicIdGenerator;
     private final AuditService auditService;
-    private final AiChatAgentService aiChatAgentService;
     private final BybitOrderWatcher bybitOrderWatcher;
     private final BusinessProperties businessProperties;
     private final Clock clock;
@@ -100,7 +97,6 @@ public class WithdrawalService {
             WorkspaceSecretService workspaceSecretService,
             PublicIdGenerator publicIdGenerator,
             AuditService auditService,
-            AiChatAgentService aiChatAgentService,
             BybitOrderWatcher bybitOrderWatcher,
             BusinessProperties businessProperties,
             Clock clock,
@@ -123,7 +119,6 @@ public class WithdrawalService {
         this.workspaceSecretService = workspaceSecretService;
         this.publicIdGenerator = publicIdGenerator;
         this.auditService = auditService;
-        this.aiChatAgentService = aiChatAgentService;
         this.bybitOrderWatcher = bybitOrderWatcher;
         this.businessProperties = businessProperties;
         this.clock = clock;
@@ -157,7 +152,6 @@ public class WithdrawalService {
                 new BybitCredentialsContext(),
                 bankService,
                 mapper,
-                null,
                 null,
                 null,
                 null,
@@ -308,8 +302,7 @@ public class WithdrawalService {
                 chatService.getMessages(workspace, withdrawal),
                 receiptCheckRepository.findByWithdrawalRequest_IdOrderByCreatedAtDescIdDesc(withdrawal.getId()).stream()
                         .map(mapper::toReceiptCheckResponse)
-                        .toList(),
-                aiChatAgentService == null ? AiChatAgentResponse.absent() : aiChatAgentService.getResponse(withdrawal)
+                        .toList()
         );
     }
 

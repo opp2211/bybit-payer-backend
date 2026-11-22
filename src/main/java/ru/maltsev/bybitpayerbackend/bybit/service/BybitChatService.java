@@ -140,7 +140,7 @@ public class BybitChatService {
             messages.add(workspace.getReceiptEmail());
         }
 
-        boolean allSent = sendAgentMessages(workspace, withdrawal, messages);
+        boolean allSent = sendRequisiteMessages(workspace, withdrawal, messages);
 
         if (allSent) {
             withdrawal.setRequisitesSentAt(Instant.now(clock));
@@ -164,7 +164,7 @@ public class BybitChatService {
         withdrawalRepository.save(withdrawal);
     }
 
-    public List<String> requisiteMessages(WithdrawalRequestEntity withdrawal) {
+    private List<String> requisiteMessages(WithdrawalRequestEntity withdrawal) {
         WithdrawalMethod withdrawalMethod = WithdrawalMethod.effective(withdrawal.getWithdrawalMethod());
         return switch (withdrawalMethod) {
             case SBP -> List.of(
@@ -199,8 +199,7 @@ public class BybitChatService {
         return String.join(", ", details);
     }
 
-    @Transactional
-    public boolean sendAgentMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal, List<String> messages) {
+    private boolean sendRequisiteMessages(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal, List<String> messages) {
         WorkspaceEntity effectiveWorkspace = effectiveWorkspace(workspace, withdrawal);
         boolean allSent = true;
         for (String rawMessage : messages) {

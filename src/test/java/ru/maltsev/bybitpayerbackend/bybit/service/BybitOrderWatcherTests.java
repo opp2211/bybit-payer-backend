@@ -213,7 +213,6 @@ class BybitOrderWatcherTests {
                 foreignOrderService,
                 advertisementManager,
                 chatService,
-                null,
                 eventService,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 transactionManager

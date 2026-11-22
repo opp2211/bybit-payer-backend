@@ -18,7 +18,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
-import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bank.service.BankService;
 import ru.maltsev.bybitpayerbackend.audit.service.AuditService;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
@@ -188,7 +187,6 @@ class WithdrawalServiceTests {
                     mock(WorkspaceSecretService.class),
                     mock(PublicIdGenerator.class),
                     mock(AuditService.class),
-                    mock(AiChatAgentService.class),
                     bybitOrderWatcher,
                     businessProperties,
                     Clock.fixed(NOW, ZoneOffset.UTC),

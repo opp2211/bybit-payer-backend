@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -11,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
@@ -29,7 +29,6 @@ import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
-import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalPaymentRules;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
@@ -39,6 +38,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 
 @Service
 @Slf4j
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class ReceiptVerificationWorker {
 
     private final ReceiptMailProperties mailProperties;
@@ -51,7 +51,6 @@ public class ReceiptVerificationWorker {
     private final BybitCredentialsContext bybitCredentialsContext;
     private final WorkspaceSecretService workspaceSecretService;
     private final WorkspaceRepository workspaceRepository;
-    private final AiChatAgentService aiChatAgentService;
     private final WithdrawalEventService eventService;
     private final Clock clock;
 
@@ -77,72 +76,9 @@ public class ReceiptVerificationWorker {
                 new BybitCredentialsContext(),
                 null,
                 null,
-                null,
                 eventService,
                 clock
         );
-    }
-
-    public ReceiptVerificationWorker(
-            ReceiptMailProperties mailProperties,
-            TinkoffReceiptMailService mailService,
-            EmailReceiptCheckRepository receiptCheckRepository,
-            IgnoredEmailReceiptRepository ignoredReceiptRepository,
-            WithdrawalRequestRepository withdrawalRepository,
-            BybitOrderBindingRepository bindingRepository,
-            BybitGateway bybitGateway,
-            BybitCredentialsContext bybitCredentialsContext,
-            WorkspaceSecretService workspaceSecretService,
-            WorkspaceRepository workspaceRepository,
-            WithdrawalEventService eventService,
-            Clock clock
-    ) {
-        this(
-                mailProperties,
-                mailService,
-                receiptCheckRepository,
-                ignoredReceiptRepository,
-                withdrawalRepository,
-                bindingRepository,
-                bybitGateway,
-                bybitCredentialsContext,
-                workspaceSecretService,
-                workspaceRepository,
-                null,
-                eventService,
-                clock
-        );
-    }
-
-    @Autowired
-    public ReceiptVerificationWorker(
-            ReceiptMailProperties mailProperties,
-            TinkoffReceiptMailService mailService,
-            EmailReceiptCheckRepository receiptCheckRepository,
-            IgnoredEmailReceiptRepository ignoredReceiptRepository,
-            WithdrawalRequestRepository withdrawalRepository,
-            BybitOrderBindingRepository bindingRepository,
-            BybitGateway bybitGateway,
-            BybitCredentialsContext bybitCredentialsContext,
-            WorkspaceSecretService workspaceSecretService,
-            WorkspaceRepository workspaceRepository,
-            AiChatAgentService aiChatAgentService,
-            WithdrawalEventService eventService,
-            Clock clock
-    ) {
-        this.mailProperties = mailProperties;
-        this.mailService = mailService;
-        this.receiptCheckRepository = receiptCheckRepository;
-        this.ignoredReceiptRepository = ignoredReceiptRepository;
-        this.withdrawalRepository = withdrawalRepository;
-        this.bindingRepository = bindingRepository;
-        this.bybitGateway = bybitGateway;
-        this.bybitCredentialsContext = bybitCredentialsContext;
-        this.workspaceSecretService = workspaceSecretService;
-        this.workspaceRepository = workspaceRepository;
-        this.aiChatAgentService = aiChatAgentService;
-        this.eventService = eventService;
-        this.clock = clock;
     }
 
     @Scheduled(fixedDelayString = "${receipt.mail.poll-interval:5s}")
@@ -410,12 +346,9 @@ public class ReceiptVerificationWorker {
     }
 
     private boolean autoReleaseEnabled(WithdrawalRequestEntity withdrawal) {
-        if (aiChatAgentService != null) {
-            return aiChatAgentService.isAutoReceiptEnabled(withdrawal);
-        }
         return WithdrawalPaymentRules.isAutoReleaseEnabled(
-                PayerBankType.effective(withdrawal.getPayerBankType()),
-                WithdrawalMethod.effective(withdrawal.getWithdrawalMethod())
+                withdrawal.getPayerBankType(),
+                withdrawal.getWithdrawalMethod()
         );
     }
 

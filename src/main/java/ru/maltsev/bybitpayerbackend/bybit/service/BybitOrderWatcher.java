@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import ru.maltsev.bybitpayerbackend.ai.service.AiChatAgentService;
 import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitCredentialsContext;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
@@ -48,7 +47,6 @@ public class BybitOrderWatcher {
     private final ForeignBybitOrderService foreignOrderService;
     private final AdvertisementManager advertisementManager;
     private final BybitChatService chatService;
-    private final AiChatAgentService aiChatAgentService;
     private final WithdrawalEventService eventService;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
@@ -73,7 +71,6 @@ public class BybitOrderWatcher {
                 foreignOrderService,
                 advertisementManager,
                 chatService,
-                null,
                 eventService,
                 clock,
                 null
@@ -103,7 +100,6 @@ public class BybitOrderWatcher {
                 foreignOrderService,
                 advertisementManager,
                 chatService,
-                null,
                 eventService,
                 clock,
                 null
@@ -121,7 +117,6 @@ public class BybitOrderWatcher {
             ForeignBybitOrderService foreignOrderService,
             AdvertisementManager advertisementManager,
             BybitChatService chatService,
-            AiChatAgentService aiChatAgentService,
             WithdrawalEventService eventService,
             Clock clock,
             PlatformTransactionManager transactionManager
@@ -135,7 +130,6 @@ public class BybitOrderWatcher {
         this.foreignOrderService = foreignOrderService;
         this.advertisementManager = advertisementManager;
         this.chatService = chatService;
-        this.aiChatAgentService = aiChatAgentService;
         this.eventService = eventService;
         this.clock = clock;
         this.transactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);
@@ -236,9 +230,10 @@ public class BybitOrderWatcher {
             return false;
         }
         if (order.paid() && withdrawal.getStatus() == WithdrawalStatus.PAYMENT_IN_PROGRESS) {
-            boolean autoReleaseEnabled = aiChatAgentService == null
-                    ? WithdrawalPaymentRules.isAutoReleaseEnabled(withdrawal.getPayerBankType(), withdrawal.getWithdrawalMethod())
-                    : aiChatAgentService.isAutoReceiptEnabled(withdrawal);
+            boolean autoReleaseEnabled = WithdrawalPaymentRules.isAutoReleaseEnabled(
+                    withdrawal.getPayerBankType(),
+                    withdrawal.getWithdrawalMethod()
+            );
             Instant now = Instant.now(clock);
             withdrawal.setStatus(WithdrawalStatus.PAYMENT_VERIFICATION);
             withdrawal.setPaidAt(now);
@@ -412,14 +407,10 @@ public class BybitOrderWatcher {
             inTransaction(() -> {
                 WithdrawalRequestEntity withdrawal = managedWithdrawal(newlyBoundWithdrawal);
                 WorkspaceEntity effectiveWorkspace = managedWorkspace(workspace, withdrawal);
-                if (aiChatAgentService == null) {
-                    chatService.sendRequisites(effectiveWorkspace, withdrawal, WithdrawalPaymentRules.isAutoReleaseEnabled(
-                            withdrawal.getPayerBankType(),
-                            withdrawal.getWithdrawalMethod()
-                    ));
-                } else {
-                    aiChatAgentService.startForOrder(effectiveWorkspace, withdrawal);
-                }
+                chatService.sendRequisites(effectiveWorkspace, withdrawal, WithdrawalPaymentRules.isAutoReleaseEnabled(
+                        withdrawal.getPayerBankType(),
+                        withdrawal.getWithdrawalMethod()
+                ));
                 return null;
             });
         } catch (RuntimeException exception) {
