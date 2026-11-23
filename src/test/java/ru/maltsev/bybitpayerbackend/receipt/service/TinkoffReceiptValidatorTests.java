@@ -29,6 +29,7 @@ class TinkoffReceiptValidatorTests {
                 Успешно
                 Сумма
                 12 345,67 ₽
+                Отправитель Мария Сидорова
                 Получатель
                 Иван Петров
                 Телефон получателя
@@ -41,6 +42,7 @@ class TinkoffReceiptValidatorTests {
         assertThat(result.errors()).isEmpty();
         assertThat(result.receipt().amount()).isEqualByComparingTo("12345.67");
         assertThat(result.receipt().status()).isEqualTo("Успешно");
+        assertThat(result.receipt().sender()).isEqualTo("Мария Сидорова");
         assertThat(result.receipt().recipient()).isEqualTo("Иван Петров");
         assertThat(result.receipt().phone()).isEqualTo("+7 (000) 000-00-00");
         assertThat(result.receipt().bank()).isEqualTo("Сбербанк");
@@ -78,6 +80,7 @@ class TinkoffReceiptValidatorTests {
 
         assertThat(result.valid()).isTrue();
         assertThat(result.receipt().amount()).isEqualByComparingTo("2420");
+        assertThat(result.receipt().sender()).isEqualTo("Дарья Тодозакова");
     }
 
     @Test

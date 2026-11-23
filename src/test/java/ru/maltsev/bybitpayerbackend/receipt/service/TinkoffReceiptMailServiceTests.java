@@ -167,6 +167,7 @@ class TinkoffReceiptMailServiceTests {
                         "Иван Петров",
                         phone,
                         "Сбербанк",
+                        null,
                         null
                 ),
                 valid ? List.of() : List.of("Телефон не совпал")

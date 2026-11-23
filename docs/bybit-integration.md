@@ -166,6 +166,12 @@ Receipt verification must match the parsed status as a complete normalized value
 `/v5/p2p/order/finish`. Negative statuses such as `Неуспешно` or `Не успешно` must not be treated
 as `Успешно` by substring matching.
 
+For withdrawals with `requireSenderFirstParty` enabled, automatic release also checks the
+receipt's `Отправитель` against the verified name from the attached Bybit order. Names are
+compared case-insensitively using the first and third words for three-word names or both words
+for two-word names. A missing, unsupported, or mismatched name fails receipt verification and
+shows an error in withdrawal details. This also applies when retrying release with a saved receipt.
+
 ## Notes
 
 Managed advertisement rebuilds propagate failures without logging them inside

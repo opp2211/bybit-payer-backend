@@ -3,6 +3,8 @@ package ru.maltsev.bybitpayerbackend.receipt.service;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
 
@@ -18,6 +20,8 @@ public class TinkoffReceiptValidator {
 
     private static final String DEFAULT_SUCCESS_STATUS = "Успешно";
     private static final String BANK_WITHOUT_RECIPIENT_LABEL = "Т-банк";
+    private static final Pattern NAME_SPACES = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS);
+    private static final Pattern NAME_WORD = Pattern.compile("\\p{L}[\\p{L}\\p{M}]*(?:[-'’]\\p{L}[\\p{L}\\p{M}]*)*");
     private static final List<String> RECIPIENT_BANK_LABELS = List.of(
             "Банк получателя",
             "Банк карты получателя"
@@ -70,6 +74,36 @@ public class TinkoffReceiptValidator {
                     : matchesCardMask(receipt.card(), expected.cardNumber());
             case ACCOUNT_NUMBER -> false;
         };
+    }
+
+    static String firstPartySenderError(String receiptSender, String bybitName) {
+        String receiptName = firstAndLastName(receiptSender);
+        if (receiptName == null) {
+            return "Не удалось определить имя и фамилию отправителя в чеке";
+        }
+        if (!ReceiptText.hasText(bybitName)) {
+            return "Bybit не предоставил верифицированное имя контрагента";
+        }
+        String expectedName = firstAndLastName(bybitName);
+        if (expectedName == null) {
+            return "Не удалось определить имя и фамилию контрагента по данным Bybit";
+        }
+        return receiptName.equals(expectedName)
+                ? null
+                : "Имя и фамилия отправителя в чеке не совпадают с верифицированным именем контрагента на Bybit";
+    }
+
+    private static String firstAndLastName(String value) {
+        String[] words = NAME_SPACES.matcher(value).replaceAll(" ").strip().split(" ");
+        if (words.length != 2 && words.length != 3) {
+            return null;
+        }
+        String firstName = words[0];
+        String lastName = words[words.length - 1];
+        if (!NAME_WORD.matcher(firstName).matches() || !NAME_WORD.matcher(lastName).matches()) {
+            return null;
+        }
+        return (firstName + " " + lastName).toLowerCase(Locale.ROOT);
     }
 
     private void validateSbpReceipt(

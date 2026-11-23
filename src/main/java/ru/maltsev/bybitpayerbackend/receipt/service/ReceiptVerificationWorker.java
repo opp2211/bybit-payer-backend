@@ -22,6 +22,7 @@ import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptData;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptVerificationRequest;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 import ru.maltsev.bybitpayerbackend.receipt.entity.IgnoredEmailReceiptEntity;
+import ru.maltsev.bybitpayerbackend.receipt.exception.ReceiptPdfParseException;
 import ru.maltsev.bybitpayerbackend.receipt.model.ReceiptVerificationStatus;
 import ru.maltsev.bybitpayerbackend.receipt.repository.EmailReceiptCheckRepository;
 import ru.maltsev.bybitpayerbackend.receipt.repository.IgnoredEmailReceiptRepository;
@@ -43,6 +44,7 @@ public class ReceiptVerificationWorker {
 
     private final ReceiptMailProperties mailProperties;
     private final TinkoffReceiptMailService mailService;
+    private final TinkoffReceiptPdfParser pdfParser;
     private final EmailReceiptCheckRepository receiptCheckRepository;
     private final IgnoredEmailReceiptRepository ignoredReceiptRepository;
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -57,6 +59,7 @@ public class ReceiptVerificationWorker {
     public ReceiptVerificationWorker(
             ReceiptMailProperties mailProperties,
             TinkoffReceiptMailService mailService,
+            TinkoffReceiptPdfParser pdfParser,
             EmailReceiptCheckRepository receiptCheckRepository,
             IgnoredEmailReceiptRepository ignoredReceiptRepository,
             WithdrawalRequestRepository withdrawalRepository,
@@ -68,6 +71,7 @@ public class ReceiptVerificationWorker {
         this(
                 mailProperties,
                 mailService,
+                pdfParser,
                 receiptCheckRepository,
                 ignoredReceiptRepository,
                 withdrawalRepository,
@@ -102,7 +106,7 @@ public class ReceiptVerificationWorker {
         List<WithdrawalRequestEntity> withdrawals = withdrawalRepository
                 .findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.PAYMENT_VERIFICATION);
         for (WithdrawalRequestEntity withdrawal : withdrawals) {
-            verifyWithdrawalLegacy(withdrawal);
+            verifyWithdrawal(null, withdrawal);
         }
     }
 
@@ -133,7 +137,7 @@ public class ReceiptVerificationWorker {
                         ReceiptVerificationStatus.VERIFIED
         );
         if (verifiedCheck.isPresent()) {
-            releaseWithdrawal(workspace, withdrawal, verifiedCheck.get());
+            retryVerifiedReceipt(workspace, withdrawal, verifiedCheck.get());
             return;
         }
 
@@ -141,64 +145,92 @@ public class ReceiptVerificationWorker {
 
         var ignoredReceiptKeys = ignoredReceiptRepository
                 .findReceiptKeysByWithdrawalRequestId(withdrawal.getId());
-        List<TinkoffMailReceiptValidationResult> results = mailService.findForWithdrawal(
-                request,
-                ignoredReceiptKeys,
-                workspaceSecretService.receiptMailbox(workspace)
-        );
+        List<TinkoffMailReceiptValidationResult> results = workspace == null
+                ? mailService.findForWithdrawal(request, ignoredReceiptKeys)
+                : mailService.findForWithdrawal(request, ignoredReceiptKeys, workspaceSecretService.receiptMailbox(workspace));
         for (TinkoffMailReceiptValidationResult result : results) {
             if (!result.recipientPhoneMatches()) {
                 rememberIgnoredReceipt(withdrawal, result);
                 continue;
             }
 
-            EmailReceiptCheckEntity check = saveCheck(withdrawal, result);
-            if (result.valid()) {
+            String error = result.valid()
+                    ? senderError(workspace, withdrawal, result.receipt())
+                    : String.join("; ", result.errors());
+            EmailReceiptCheckEntity check = saveCheck(withdrawal, result, error);
+            if (error == null) {
                 releaseWithdrawal(workspace, withdrawal, check);
-                return;
+            } else {
+                markVerificationFailed(withdrawal, error);
             }
-            markVerificationFailed(withdrawal, String.join("; ", result.errors()));
             return;
         }
     }
 
-    private void verifyWithdrawalLegacy(WithdrawalRequestEntity withdrawal) {
-        if (!autoReleaseEnabled(withdrawal)) {
-            return;
-        }
-
-        var verifiedCheck = receiptCheckRepository
-                .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
-                        withdrawal.getId(),
-                        withdrawal.getBybitOrderId(),
-                        ReceiptVerificationStatus.VERIFIED
-                );
-        if (verifiedCheck.isPresent()) {
-            releaseWithdrawalLegacy(withdrawal, verifiedCheck.get());
-            return;
-        }
-
-        TinkoffReceiptVerificationRequest request = verificationRequest(withdrawal);
-
-        var ignoredReceiptKeys = ignoredReceiptRepository
-                .findReceiptKeysByWithdrawalRequestId(withdrawal.getId());
-        List<TinkoffMailReceiptValidationResult> results = mailService.findForWithdrawal(
-                request,
-                ignoredReceiptKeys
-        );
-        for (TinkoffMailReceiptValidationResult result : results) {
-            if (!result.recipientPhoneMatches()) {
-                rememberIgnoredReceipt(withdrawal, result);
-                continue;
-            }
-
-            EmailReceiptCheckEntity check = saveCheck(withdrawal, result);
-            if (result.valid()) {
-                releaseWithdrawalLegacy(withdrawal, check);
+    private void retryVerifiedReceipt(
+            WorkspaceEntity workspace,
+            WithdrawalRequestEntity withdrawal,
+            EmailReceiptCheckEntity check
+    ) {
+        if (withdrawal.isRequireSenderFirstParty()) {
+            String error = senderError(workspace, withdrawal, readSavedReceipt(check));
+            if (error != null) {
+                check.setVerificationStatus(ReceiptVerificationStatus.FAILED);
+                check.setVerificationError(error);
+                receiptCheckRepository.save(check);
+                markVerificationFailed(withdrawal, error);
                 return;
             }
-            markVerificationFailed(withdrawal, String.join("; ", result.errors()));
-            return;
+        }
+        releaseWithdrawal(workspace, withdrawal, check);
+    }
+
+    private TinkoffReceiptData readSavedReceipt(EmailReceiptCheckEntity check) {
+        byte[] pdf = check.getPdfContent();
+        if (pdf == null || pdf.length == 0) {
+            return null;
+        }
+        try {
+            return pdfParser.parse(pdf).data();
+        } catch (ReceiptPdfParseException exception) {
+            log.warn("Could not read saved receipt for sender verification: receiptCheckId={}", check.getId());
+            return null;
+        }
+    }
+
+    private String senderError(
+            WorkspaceEntity workspace,
+            WithdrawalRequestEntity withdrawal,
+            TinkoffReceiptData receipt
+    ) {
+        if (!withdrawal.isRequireSenderFirstParty()) {
+            return null;
+        }
+        if (receipt == null || !StringUtils.hasText(receipt.sender())) {
+            return "В чеке не найдено поле «Отправитель»";
+        }
+        String bybitName = withdrawal.getBybitCounterpartyVerifiedName();
+        if (!StringUtils.hasText(bybitName)) {
+            bybitName = fetchCounterpartyName(workspace, withdrawal.getBybitOrderId());
+        }
+        return TinkoffReceiptValidator.firstPartySenderError(receipt.sender(), bybitName);
+    }
+
+    private String fetchCounterpartyName(WorkspaceEntity workspace, String orderId) {
+        if (!StringUtils.hasText(orderId)) {
+            return null;
+        }
+        try {
+            if (workspace == null) {
+                return bybitGateway.fetchOrderCounterpartyVerifiedName(orderId).orElse(null);
+            }
+            return bybitCredentialsContext.callWith(
+                    workspaceSecretService.bybitCredentials(workspace),
+                    () -> bybitGateway.fetchOrderCounterpartyVerifiedName(orderId).orElse(null)
+            );
+        } catch (RuntimeException exception) {
+            log.debug("Bybit name unavailable for receipt verification: orderId={}", orderId);
+            return null;
         }
     }
 
@@ -227,7 +259,11 @@ public class ReceiptVerificationWorker {
         );
     }
 
-    private EmailReceiptCheckEntity saveCheck(WithdrawalRequestEntity withdrawal, TinkoffMailReceiptValidationResult result) {
+    private EmailReceiptCheckEntity saveCheck(
+            WithdrawalRequestEntity withdrawal,
+            TinkoffMailReceiptValidationResult result,
+            String error
+    ) {
         TinkoffReceiptData receipt = result.receipt();
         EmailReceiptCheckEntity check = new EmailReceiptCheckEntity();
         check.setWithdrawalRequest(withdrawal);
@@ -246,8 +282,8 @@ public class ReceiptVerificationWorker {
             check.setParsedRecipientName(receipt.recipient());
             check.setParsedRecipientCard(receipt.card());
         }
-        check.setVerificationStatus(result.valid() ? ReceiptVerificationStatus.VERIFIED : ReceiptVerificationStatus.FAILED);
-        check.setVerificationError(result.valid() ? null : String.join("; ", result.errors()));
+        check.setVerificationStatus(error == null ? ReceiptVerificationStatus.VERIFIED : ReceiptVerificationStatus.FAILED);
+        check.setVerificationError(error);
         check.setCreatedAt(Instant.now(clock));
         return receiptCheckRepository.save(check);
     }
@@ -259,10 +295,14 @@ public class ReceiptVerificationWorker {
         }
 
         try {
-            bybitCredentialsContext.runWith(
-                    workspaceSecretService.bybitCredentials(workspace),
-                    () -> bybitGateway.releaseOrder(withdrawal.getBybitOrderId())
-            );
+            if (workspace == null) {
+                bybitGateway.releaseOrder(withdrawal.getBybitOrderId());
+            } else {
+                bybitCredentialsContext.runWith(
+                        workspaceSecretService.bybitCredentials(workspace),
+                        () -> bybitGateway.releaseOrder(withdrawal.getBybitOrderId())
+                );
+            }
             withdrawal.setStatus(WithdrawalStatus.COMPLETED);
             withdrawal.setCompletedAt(Instant.now(clock));
             withdrawal.setCompletionSeen(false);
@@ -297,38 +337,6 @@ public class ReceiptVerificationWorker {
                     exception.getMessage(),
                     exception
             );
-        }
-    }
-
-    private void releaseWithdrawalLegacy(WithdrawalRequestEntity withdrawal, EmailReceiptCheckEntity check) {
-        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
-            markVerificationFailed(withdrawal, "Verified receipt has no linked Bybit order");
-            return;
-        }
-
-        try {
-            bybitGateway.releaseOrder(withdrawal.getBybitOrderId());
-            withdrawal.setStatus(WithdrawalStatus.COMPLETED);
-            withdrawal.setCompletedAt(Instant.now(clock));
-            withdrawal.setCompletionSeen(false);
-            withdrawal.setAttentionRequired(false);
-            withdrawal.setLastError(null);
-            withdrawal.setLastWarning(null);
-            withdrawalRepository.save(withdrawal);
-
-            bindingRepository.findByWithdrawalRequest_IdAndStatus(withdrawal.getId(), OrderBindingStatus.ACTIVE)
-                    .ifPresent(binding -> {
-                        binding.setStatus(OrderBindingStatus.RELEASED);
-                        bindingRepository.save(binding);
-                    });
-
-            eventService.add(withdrawal, WithdrawalEventType.VERIFICATION_SUCCEEDED, "Receipt verification succeeded");
-            eventService.add(withdrawal, WithdrawalEventType.RELEASE_SUCCEEDED, "Bybit order released", "{\"receiptCheckId\":" + check.getId() + "}");
-        } catch (Exception exception) {
-            withdrawal.setAttentionRequired(true);
-            withdrawal.setLastError(exception.getMessage());
-            withdrawalRepository.save(withdrawal);
-            eventService.add(withdrawal, WithdrawalEventType.RELEASE_FAILED, "Bybit release failed: " + exception.getMessage());
         }
     }
 

@@ -24,6 +24,7 @@ public class TinkoffReceiptPdfParser {
     private static final List<String> STATUS_LABELS = List.of("Статус операции", "Статус", "Состояние");
     private static final List<String> PRIMARY_AMOUNT_LABELS = List.of("Сумма операции", "Сумма перевода", "Сумма");
     private static final List<String> FALLBACK_AMOUNT_LABELS = List.of("Итого");
+    private static final List<String> SENDER_LABELS = List.of("Отправитель");
     private static final List<String> RECIPIENT_LABELS = List.of("ФИО получателя", "Получатель", "Кому");
     private static final List<String> PHONE_LABELS = List.of("Телефон получателя", "Номер телефона", "Телефон");
     private static final List<String> BANK_LABELS = List.of("Банк получателя", "Банк карты получателя");
@@ -46,6 +47,7 @@ public class TinkoffReceiptPdfParser {
     public ParsedTinkoffReceipt parse(byte[] pdf) {
         try (PDDocument document = Loader.loadPDF(pdf)) {
             PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setSortByPosition(true);
             return parseText(stripper.getText(document));
         } catch (IOException exception) {
             throw new ReceiptPdfParseException("Не удалось прочитать PDF-чек", exception);
@@ -60,7 +62,8 @@ public class TinkoffReceiptPdfParser {
                 extractLineValue(rawText, RECIPIENT_LABELS).orElse(null),
                 extractPhone(rawText).orElse(null),
                 extractLineValue(rawText, BANK_LABELS).orElse(null),
-                extractLineValue(rawText, CARD_LABELS).orElse(null)
+                extractLineValue(rawText, CARD_LABELS).orElse(null),
+                extractLineValue(rawText, SENDER_LABELS).orElse(null)
         );
         return new ParsedTinkoffReceipt(data, rawText);
     }
@@ -169,6 +172,7 @@ public class TinkoffReceiptPdfParser {
         return normalizedLine.endsWith("операции")
                 || normalizedLine.equals("статус")
                 || normalizedLine.equals("сумма")
+                || normalizedLine.equals("отправитель")
                 || normalizedLine.equals("получатель")
                 || normalizedLine.equals("телефон")
                 || normalizedLine.equals("банк получателя")

@@ -19,12 +19,16 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.receipt.config.ReceiptMailProperties;
+import ru.maltsev.bybitpayerbackend.receipt.dto.ParsedTinkoffReceipt;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffMailReceiptValidationResult;
 import ru.maltsev.bybitpayerbackend.receipt.dto.TinkoffReceiptData;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
@@ -165,6 +169,95 @@ class ReceiptVerificationWorkerTests {
         verify(fixture.bybitGateway, never()).releaseOrder("order-1");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"ИВАН ПЕТРОВИЧ СИДОРОВ", "ИВАН СИДОРОВ"})
+    void releasesFirstPartyOrderWhenSenderMatchesVerifiedName(String bybitName) {
+        Fixture fixture = new Fixture();
+        WithdrawalRequestEntity withdrawal = firstPartyWithdrawal(fixture);
+        withdrawal.setBybitCounterpartyVerifiedName(bybitName);
+        fixture.receiveValidReceipt(withdrawal, "Иван Сидоров");
+
+        fixture.worker.verifyPendingPayments();
+
+        verify(fixture.bybitGateway).releaseOrder("order-1");
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
+        assertThat(fixture.savedChecks).singleElement()
+                .extracting(EmailReceiptCheckEntity::getVerificationStatus)
+                .isEqualTo(ReceiptVerificationStatus.VERIFIED);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', nullValues = "NULL", value = {
+            "Иван Петров | ИВАН ПЕТРОВ СИДОРОВ | не совпадают",
+            "NULL | ИВАН СИДОРОВ | не найдено поле «Отправитель»",
+            "Иван Сидоров | NULL | Bybit не предоставил верифицированное имя"
+    })
+    void blocksFirstPartyReleaseAndRecordsTheReason(String sender, String bybitName, String reason) {
+        Fixture fixture = new Fixture();
+        WithdrawalRequestEntity withdrawal = firstPartyWithdrawal(fixture);
+        withdrawal.setBybitCounterpartyVerifiedName(bybitName);
+        when(fixture.bybitGateway.fetchOrderCounterpartyVerifiedName("order-1")).thenReturn(Optional.empty());
+        fixture.receiveValidReceipt(withdrawal, sender);
+
+        fixture.worker.verifyPendingPayments();
+
+        verify(fixture.bybitGateway, never()).releaseOrder("order-1");
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.ERROR);
+        assertThat(withdrawal.isAttentionRequired()).isTrue();
+        assertThat(withdrawal.getLastWarning()).contains(reason);
+        assertThat(fixture.savedChecks).singleElement().satisfies(check -> {
+            assertThat(check.getVerificationStatus()).isEqualTo(ReceiptVerificationStatus.FAILED);
+            assertThat(check.getVerificationError()).contains(reason);
+        });
+    }
+
+    @Test
+    void looksUpVerifiedNameForAnOlderOrder() {
+        Fixture fixture = new Fixture();
+        WithdrawalRequestEntity withdrawal = firstPartyWithdrawal(fixture);
+        when(fixture.bybitGateway.fetchOrderCounterpartyVerifiedName("order-1"))
+                .thenReturn(Optional.of("ИВАН ПЕТРОВИЧ СИДОРОВ"));
+        fixture.receiveValidReceipt(withdrawal, "Иван Сидоров");
+
+        fixture.worker.verifyPendingPayments();
+
+        verify(fixture.bybitGateway).fetchOrderCounterpartyVerifiedName("order-1");
+        verify(fixture.bybitGateway).releaseOrder("order-1");
+    }
+
+    @Test
+    void rechecksSenderBeforeRetryingAnAlreadyVerifiedReceipt() {
+        Fixture fixture = new Fixture();
+        WithdrawalRequestEntity withdrawal = firstPartyWithdrawal(fixture);
+        withdrawal.setBybitCounterpartyVerifiedName("ИВАН СИДОРОВ");
+        EmailReceiptCheckEntity check = new EmailReceiptCheckEntity();
+        check.setPdfContent(new byte[]{1, 2, 3});
+        check.setVerificationStatus(ReceiptVerificationStatus.VERIFIED);
+        when(fixture.receiptCheckRepository
+                .findFirstByWithdrawalRequest_IdAndBybitOrderIdAndVerificationStatusOrderByCreatedAtDescIdDesc(
+                        1L, "order-1", ReceiptVerificationStatus.VERIFIED
+                )).thenReturn(Optional.of(check));
+        when(fixture.pdfParser.parse(check.getPdfContent())).thenReturn(new ParsedTinkoffReceipt(
+                new TinkoffReceiptData(null, null, null, null, null, null, "Иван Петров"),
+                ""
+        ));
+
+        fixture.worker.verifyPendingPayments();
+
+        verify(fixture.bybitGateway, never()).releaseOrder("order-1");
+        assertThat(check.getVerificationStatus()).isEqualTo(ReceiptVerificationStatus.FAILED);
+        assertThat(check.getVerificationError()).contains("не совпадают");
+        assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.ERROR);
+    }
+
+    private WithdrawalRequestEntity firstPartyWithdrawal(Fixture fixture) {
+        WithdrawalRequestEntity withdrawal = withdrawal(1L, "order-1", "+79001111111", new BigDecimal("1000"));
+        withdrawal.setRequireSenderFirstParty(true);
+        when(fixture.withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.PAYMENT_VERIFICATION))
+                .thenReturn(List.of(withdrawal));
+        return withdrawal;
+    }
+
     private WithdrawalRequestEntity withdrawal(Long id, String orderId, String phone, BigDecimal amount) {
         BankEntity bank = new BankEntity();
         bank.setCode("SBERBANK");
@@ -206,6 +299,7 @@ class ReceiptVerificationWorkerTests {
                         "Иван Петров",
                         phone,
                         "Сбербанк",
+                        null,
                         null
                 ),
                 errors
@@ -216,6 +310,7 @@ class ReceiptVerificationWorkerTests {
 
         private final ReceiptMailProperties mailProperties = new ReceiptMailProperties();
         private final TinkoffReceiptMailService mailService = mock(TinkoffReceiptMailService.class);
+        private final TinkoffReceiptPdfParser pdfParser = mock(TinkoffReceiptPdfParser.class);
         private final EmailReceiptCheckRepository receiptCheckRepository =
                 mock(EmailReceiptCheckRepository.class);
         private final IgnoredEmailReceiptRepository ignoredReceiptRepository =
@@ -256,6 +351,7 @@ class ReceiptVerificationWorkerTests {
             worker = new ReceiptVerificationWorker(
                     mailProperties,
                     mailService,
+                    pdfParser,
                     receiptCheckRepository,
                     ignoredReceiptRepository,
                     withdrawalRepository,
@@ -264,6 +360,18 @@ class ReceiptVerificationWorkerTests {
                     eventService,
                     Clock.fixed(NOW, ZoneOffset.UTC)
             );
+        }
+
+        private void receiveValidReceipt(WithdrawalRequestEntity withdrawal, String sender) {
+            var result = new TinkoffMailReceiptValidationResult(
+                    true, true, "receipt", "message", null, null, NOW, "receipt.pdf", null,
+                    new TinkoffReceiptData(
+                            withdrawal.getAmountRub(), "Успешно", withdrawal.getRecipientName(),
+                            withdrawal.getRecipientPhone(), "Сбербанк", null, sender
+                    ),
+                    List.of()
+            );
+            when(mailService.findForWithdrawal(any(), any())).thenReturn(List.of(result));
         }
     }
 }
