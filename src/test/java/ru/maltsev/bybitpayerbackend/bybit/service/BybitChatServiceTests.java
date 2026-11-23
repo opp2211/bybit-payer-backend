@@ -326,7 +326,7 @@ class BybitChatServiceTests {
     }
 
     @Test
-    void sendsCardNumberAndRecipientNameForTbankCardRequisites() {
+    void sendsFirstPartyWarningAfterCardRequisitesAndReceiptEmailWhenRequired() {
         WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
         WithdrawalEventService eventService = mock(WithdrawalEventService.class);
         BybitGateway bybitGateway = mock(BybitGateway.class);
@@ -337,6 +337,7 @@ class BybitChatServiceTests {
         withdrawal.setWithdrawalMethod(WithdrawalMethod.CARD_NUMBER);
         withdrawal.setRecipientCardNumber("2200000000001234");
         withdrawal.setRecipientCardTbank(true);
+        withdrawal.setRequireSenderFirstParty(true);
         withdrawal.setRecipientName("Дмитрий С.");
         BankEntity bank = new BankEntity();
         bank.setTitle("Т-Банк");
@@ -357,9 +358,16 @@ class BybitChatServiceTests {
         service.sendRequisites(workspace, withdrawal, true);
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-        verify(bybitGateway, times(4)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
-        assertThat(messageCaptor.getAllValues())
-                .containsExactly("Привет", "2200000000001234", "Т-Банк, Дмитрий С.", "receipts@example.com");
+        verify(bybitGateway, times(5)).sendChatMessage(eq("order-7"), anyString(), messageCaptor.capture());
+        assertThat(messageCaptor.getAllValues()).containsExactly(
+                "Привет",
+                "2200000000001234",
+                "Т-Банк, Дмитрий С.",
+                "receipts@example.com",
+                """
+                Работаю ТОЛЬКО с первыми лицами - Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit.
+                Это ВАЖНО! Если вы совершите платеж от 3 лица, без согласования, я буду делать возврат отправителю, но, поверьте, это будет очень долго"""
+        );
     }
 
     @Test

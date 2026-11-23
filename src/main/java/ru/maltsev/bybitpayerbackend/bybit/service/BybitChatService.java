@@ -50,6 +50,9 @@ import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceSecretService;
 public class BybitChatService {
 
     private static final String HELLO_MESSAGE = "\u041f\u0440\u0438\u0432\u0435\u0442";
+    private static final String FIRST_PARTY_SENDER_WARNING = """
+            Работаю ТОЛЬКО с первыми лицами - Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit.
+            Это ВАЖНО! Если вы совершите платеж от 3 лица, без согласования, я буду делать возврат отправителю, но, поверьте, это будет очень долго""";
     private static final String TEXT_CONTENT_TYPE = "str";
 
     private final WithdrawalRequestRepository withdrawalRepository;
@@ -138,6 +141,9 @@ public class BybitChatService {
 
         if (includeReceiptEmail && workspace != null && StringUtils.hasText(workspace.getReceiptEmail())) {
             messages.add(workspace.getReceiptEmail());
+        }
+        if (withdrawal.isRequireSenderFirstParty()) {
+            messages.add(FIRST_PARTY_SENDER_WARNING);
         }
 
         boolean allSent = sendRequisiteMessages(workspace, withdrawal, messages);

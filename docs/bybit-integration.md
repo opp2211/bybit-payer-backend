@@ -245,8 +245,12 @@ start mail receipt verification. `SBERBANK` and
 skip mailbox polling, and must be released manually.
 
 When a new order is bound, the backend sends the greeting and fixed requisite messages.
-For automatic receipt verification, it also sends the workspace receipt email. Operators
-can send additional messages from the withdrawal details.
+For automatic receipt verification, it also sends the workspace receipt email. If the
+withdrawal has `requireSenderFirstParty` enabled, the backend sends a separate fixed warning
+as the last automatic message, after any receipt email. The warning asks the buyer to pay
+from an account in their verified Bybit name and explains that unapproved third-party
+payments will be returned to the sender. Operators can send additional messages from the
+withdrawal details.
 
 For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
 from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.
