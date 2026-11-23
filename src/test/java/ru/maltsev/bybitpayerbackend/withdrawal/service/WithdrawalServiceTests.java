@@ -2,6 +2,7 @@ package ru.maltsev.bybitpayerbackend.withdrawal.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -93,7 +94,7 @@ class WithdrawalServiceTests {
 
     @Test
     void rebuildsPublicationAndChecksBybitBeforeCancellingInWorkWithdrawal() {
-        CancellationFixture fixture = new CancellationFixture();
+        WithdrawalFixture fixture = new WithdrawalFixture();
         doAnswer(invocation -> {
             assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.CANCELLATION_PENDING);
             return null;
@@ -111,7 +112,7 @@ class WithdrawalServiceTests {
 
     @Test
     void blocksCancellationWhenLateBybitOrderGetsBoundDuringSafetyCheck() {
-        CancellationFixture fixture = new CancellationFixture();
+        WithdrawalFixture fixture = new WithdrawalFixture();
         doAnswer(invocation -> {
             fixture.withdrawal.setStatus(WithdrawalStatus.PAYMENT_IN_PROGRESS);
             fixture.withdrawal.setBybitOrderId("late-order");
@@ -129,7 +130,7 @@ class WithdrawalServiceTests {
 
     @Test
     void doesNotBlockCancellationBecauseOfUnrelatedOrderWithSameAmount() {
-        CancellationFixture fixture = new CancellationFixture();
+        WithdrawalFixture fixture = new WithdrawalFixture();
 
         fixture.service.cancel("workspace-1", "withdrawal-1");
 
@@ -137,7 +138,32 @@ class WithdrawalServiceTests {
         verify(fixture.bybitGateway, never()).fetchActiveOrders();
     }
 
-    private static class CancellationFixture {
+    @Test
+    void looksUpAnExistingOrderNameWhenItHasNotBeenStored() {
+        WithdrawalFixture fixture = new WithdrawalFixture();
+        fixture.withdrawal.setBybitOrderId("order-1");
+        when(fixture.bybitGateway.fetchOrderCounterpartyVerifiedName("order-1"))
+                .thenReturn(Optional.of("Иван Иванов"));
+
+        assertThat(fixture.service.getDetails("workspace-1", "withdrawal-1").bybitCounterpartyVerifiedName())
+                .isEqualTo("Иван Иванов");
+    }
+
+    @Test
+    void usesTheStoredNameWhileTheOrderIsAttached() {
+        WithdrawalFixture fixture = new WithdrawalFixture();
+        fixture.withdrawal.setBybitOrderId("order-1");
+        fixture.withdrawal.setBybitCounterpartyVerifiedName("Иван Иванов");
+
+        assertThat(fixture.service.getDetails("workspace-1", "withdrawal-1").bybitCounterpartyVerifiedName())
+                .isEqualTo("Иван Иванов");
+
+        fixture.withdrawal.setBybitOrderId(null);
+        assertThat(fixture.service.getDetails("workspace-1", "withdrawal-1").bybitCounterpartyVerifiedName()).isNull();
+        verify(fixture.bybitGateway, never()).fetchOrderCounterpartyVerifiedName(anyString());
+    }
+
+    private static class WithdrawalFixture {
 
         private final WithdrawalRequestRepository withdrawalRepository = mock(WithdrawalRequestRepository.class);
         private final WithdrawalMapper mapper = mock(WithdrawalMapper.class);
@@ -152,7 +178,7 @@ class WithdrawalServiceTests {
         private final WithdrawalResponse response = mock(WithdrawalResponse.class);
         private final WithdrawalService service;
 
-        private CancellationFixture() {
+        private WithdrawalFixture() {
             workspace.setId(1L);
             workspace.setPublicId("workspace-1");
             withdrawal.setId(1L);
@@ -162,6 +188,8 @@ class WithdrawalServiceTests {
 
             when(currentUserService.currentUser()).thenReturn(user);
             when(workspaceAccessService.getAccessibleWorkspace("workspace-1", user)).thenReturn(workspace);
+            when(withdrawalRepository.findByWorkspaceAndPublicId(workspace, "withdrawal-1"))
+                    .thenReturn(Optional.of(withdrawal));
             when(withdrawalRepository.findForUpdateByWorkspaceAndPublicId(workspace, "withdrawal-1"))
                     .thenReturn(Optional.of(withdrawal));
             when(withdrawalRepository.save(withdrawal)).thenReturn(withdrawal);

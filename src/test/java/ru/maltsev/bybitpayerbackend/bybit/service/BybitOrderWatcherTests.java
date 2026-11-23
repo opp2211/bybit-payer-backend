@@ -83,6 +83,7 @@ class BybitOrderWatcherTests {
 
         assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.PAYMENT_IN_PROGRESS);
         assertThat(withdrawal.getBybitOrderId()).isEqualTo("order-1");
+        assertThat(withdrawal.getBybitCounterpartyVerifiedName()).isEqualTo("Иван Иванов");
         verify(advertisementManager).rebuildPublication();
     }
 
@@ -234,6 +235,7 @@ class BybitOrderWatcherTests {
     @Test
     void returnsWithdrawalToWorkWhenBoundOrderWasCancelled() {
         Fixture fixture = new Fixture(WithdrawalStatus.PAYMENT_VERIFICATION);
+        fixture.withdrawal.setBybitCounterpartyVerifiedName("Иван Иванов");
         when(fixture.gateway.fetchOrder("order-1")).thenReturn(Optional.of(order("40")));
 
         fixture.watcher.pollActiveOrders();
@@ -241,6 +243,7 @@ class BybitOrderWatcherTests {
         assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.CANCELLED);
         assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.NEW);
         assertThat(fixture.withdrawal.getBybitOrderId()).isNull();
+        assertThat(fixture.withdrawal.getBybitCounterpartyVerifiedName()).isNull();
         assertThat(fixture.withdrawal.getVerificationStartedAt()).isNull();
         verify(fixture.advertisementManager).rebuildPublication();
     }
@@ -254,6 +257,7 @@ class BybitOrderWatcherTests {
 
         assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.RELEASED);
         assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
+        assertThat(fixture.withdrawal.getBybitCounterpartyVerifiedName()).isEqualTo("Иван Иванов");
         assertThat(fixture.withdrawal.getCompletedAt()).isEqualTo(NOW);
         assertThat(fixture.withdrawal.isCompletionSeen()).isFalse();
         verify(fixture.advertisementManager, never()).rebuildPublication();
@@ -393,7 +397,8 @@ class BybitOrderWatcherTests {
                 new BigDecimal(amountRub),
                 status,
                 new BigDecimal("108.25"),
-                new BigDecimal("0.30")
+                new BigDecimal("0.30"),
+                "Иван Иванов"
         );
     }
 

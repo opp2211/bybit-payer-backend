@@ -111,6 +111,9 @@ public class WithdrawalRequestEntity {
     @Column(name = "bybit_order_id", length = 128)
     private String bybitOrderId;
 
+    @Column(name = "bybit_counterparty_verified_name", columnDefinition = "text")
+    private String bybitCounterpartyVerifiedName;
+
     @Column(name = "bybit_order_amount_rub", precision = 19, scale = 2)
     private BigDecimal bybitOrderAmountRub;
 

@@ -7,7 +7,8 @@ public record BybitP2pOrder(
         BigDecimal amountRub,
         String status,
         BigDecimal quantityUsdt,
-        BigDecimal feeUsdt
+        BigDecimal feeUsdt,
+        String counterpartyVerifiedName
 ) {
 
     private static final String WAITING_SELLER_RELEASE = "20";

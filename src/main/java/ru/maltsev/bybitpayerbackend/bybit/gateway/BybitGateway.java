@@ -18,6 +18,10 @@ public interface BybitGateway {
 
     Optional<BybitP2pOrder> fetchOrder(String bybitOrderId);
 
+    default Optional<String> fetchOrderCounterpartyVerifiedName(String bybitOrderId) {
+        return fetchOrder(bybitOrderId).map(BybitP2pOrder::counterpartyVerifiedName);
+    }
+
     BybitAccountInfo fetchAccountInfo();
 
     List<BybitChatMessage> fetchChatMessages(String bybitOrderId);
