@@ -175,8 +175,10 @@ class HttpBybitGatewayTests {
                           "result": {
                             "count": 3,
                             "items": [
-                              {"id":"order-1","amount":"1000","status":20},
-                              {"id":"order-2","amount":"2000","status":30}
+                              {"id":"order-1","amount":"1000","status":20,"side":1,
+                                "buyerRealName":" Иван Иванов ","sellerRealName":"Our seller","targetNickName":"buyer"},
+                              {"id":"order-2","amount":"2000","status":30,"side":"0",
+                                "buyerRealName":"Our buyer","sellerRealName":"Maria Seller","targetNickName":"seller"}
                             ]
                           }
                         }
@@ -189,7 +191,8 @@ class HttpBybitGatewayTests {
                           "result": {
                             "count": 3,
                             "items": [
-                              {"id":"order-3","amount":"3000","status":110}
+                              {"id":"order-3","amount":"3000","status":110,"side":1,
+                                "buyerRealName":" ","sellerRealName":"Our seller","targetNickName":"nickname-only"}
                             ]
                           }
                         }
@@ -212,6 +215,8 @@ class HttpBybitGatewayTests {
             assertThat(orderRequests).hasValue(2);
             assertThat(orders).extracting(BybitP2pOrder::bybitOrderId)
                     .containsExactly("order-1", "order-2", "order-3");
+            assertThat(orders).extracting(BybitP2pOrder::counterpartyVerifiedName)
+                    .containsExactly("Иван Иванов", "Maria Seller", null);
         } finally {
             server.stop(0);
         }
@@ -221,8 +226,10 @@ class HttpBybitGatewayTests {
     void readsTerminalOrderStatusAndUsdtAmounts() throws Exception {
         Instant fixedInstant = Instant.ofEpochMilli(1741769463827L);
         AtomicReference<String> timestampHeader = new AtomicReference<>();
+        AtomicInteger orderRequests = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v5/p2p/order/info", exchange -> {
+            orderRequests.incrementAndGet();
             timestampHeader.set(exchange.getRequestHeaders().getFirst("X-BAPI-TIMESTAMP"));
             respond(exchange, """
                 {
@@ -233,6 +240,9 @@ class HttpBybitGatewayTests {
                     "amount": "10000",
                     "quantity": "108.25",
                     "fee": "0.30",
+                    "side": 1,
+                    "buyerRealName": "Ivan Buyer",
+                    "targetNickName": "marketbuyer",
                     "status": 50
                   }
                 }
@@ -255,6 +265,10 @@ class HttpBybitGatewayTests {
             assertThat(order.quantityUsdt()).isEqualByComparingTo("108.25");
             assertThat(order.feeUsdt()).isEqualByComparingTo("0.30");
             assertThat(order.totalUsdt()).isEqualByComparingTo("108.55");
+            assertThat(order.counterpartyVerifiedName()).isEqualTo("Ivan Buyer");
+            assertThat(gateway.fetchOrderCounterpartyVerifiedName("order-123")).contains("Ivan Buyer");
+            assertThat(gateway.fetchOrderCounterpartyVerifiedName("order-123")).contains("Ivan Buyer");
+            assertThat(orderRequests).hasValue(2);
         } finally {
             server.stop(0);
         }

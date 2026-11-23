@@ -216,7 +216,7 @@ public class BybitOrderWatcher {
 
     private boolean syncBoundOrder(BybitOrderBindingEntity binding, BybitP2pOrder order) {
         WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
-        updateOrderAmounts(withdrawal, order);
+        updateOrderDetails(withdrawal, order);
         if (order.cancelled()) {
             if (withdrawal.getStatus() == WithdrawalStatus.APPEAL
                     || withdrawal.getStatus() == WithdrawalStatus.OBJECTION_REQUIRED) {
@@ -275,7 +275,7 @@ public class BybitOrderWatcher {
 
         binding.setStatus(OrderBindingStatus.ACTIVE);
         bindingRepository.save(binding);
-        updateOrderAmounts(withdrawal, order);
+        updateOrderDetails(withdrawal, order);
         withdrawal.setStatus(nextStatus);
         withdrawal.setCompletedAt(null);
         withdrawal.setCancelledAt(null);
@@ -333,9 +333,7 @@ public class BybitOrderWatcher {
         Instant now = Instant.now(clock);
         withdrawal.setStatus(WithdrawalStatus.PAYMENT_IN_PROGRESS);
         withdrawal.setBybitOrderId(order.bybitOrderId());
-        withdrawal.setBybitOrderAmountRub(order.amountRub());
-        withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
-        withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
+        updateOrderDetails(withdrawal, order);
         withdrawal.setOrderFoundAt(now);
         withdrawalRepository.save(withdrawal);
 
@@ -378,9 +376,7 @@ public class BybitOrderWatcher {
         Instant now = Instant.now(clock);
         withdrawal.setStatus(WithdrawalStatus.PAYMENT_IN_PROGRESS);
         withdrawal.setBybitOrderId(order.bybitOrderId());
-        withdrawal.setBybitOrderAmountRub(order.amountRub());
-        withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
-        withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
+        updateOrderDetails(withdrawal, order);
         withdrawal.setOrderFoundAt(now);
         withdrawalRepository.save(withdrawal);
 
@@ -566,6 +562,7 @@ public class BybitOrderWatcher {
 
         withdrawal.setStatus(WithdrawalStatus.NEW);
         withdrawal.setBybitOrderId(null);
+        withdrawal.setBybitCounterpartyVerifiedName(null);
         withdrawal.setBybitOrderAmountRub(null);
         withdrawal.setBybitOrderQuantityUsdt(null);
         withdrawal.setBybitOrderFeeUsdt(null);
@@ -658,10 +655,13 @@ public class BybitOrderWatcher {
         );
     }
 
-    private void updateOrderAmounts(WithdrawalRequestEntity withdrawal, BybitP2pOrder order) {
+    private void updateOrderDetails(WithdrawalRequestEntity withdrawal, BybitP2pOrder order) {
         withdrawal.setBybitOrderAmountRub(order.amountRub());
         withdrawal.setBybitOrderQuantityUsdt(order.quantityUsdt());
         withdrawal.setBybitOrderFeeUsdt(order.feeUsdt());
+        if (order.counterpartyVerifiedName() != null && order.bybitOrderId().equals(withdrawal.getBybitOrderId())) {
+            withdrawal.setBybitCounterpartyVerifiedName(order.counterpartyVerifiedName());
+        }
     }
 
     private boolean orderAmountMatches(WithdrawalRequestEntity withdrawal, BigDecimal orderAmountRub) {

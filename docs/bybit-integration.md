@@ -133,8 +133,8 @@ is online (status `10`).
 - `POST /v5/p2p/item/update` — update/relist managed ad.
 - `POST /v5/p2p/item/cancel` — unpublish/remove managed ad when there are no `IN_WORK` withdrawals.
 - `POST /v5/p2p/order/pending/simplifyList` — poll active P2P orders.
-- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order and obtain
-  `targetUserMaskId` when a chat session must be created.
+- `POST /v5/p2p/order/info` — read the current or terminal status of a bound order, look up
+  its counterparty name if missing locally, and obtain `targetUserMaskId` for chat sessions.
 - `POST /v5/p2p/user/personal/info` — read the workspace Bybit `userId`, `accountId`,
   and `nickName` used for chat author classification.
 - `POST /v5/p2p/chat/session/getSessionId` — obtain the encrypted chat `sessionId`; the gateway caches
@@ -210,6 +210,12 @@ on the next poll.
 
 The effective seventh-position RUB/USDT rate includes the P2P fee in the USDT total:
 `effective rate = market rate / (1 + P2P_FEE_RATE)`. For example, `75.50 / 1.00275 = 75.29294440`.
+
+Withdrawal details expose `bybitCounterpartyVerifiedName` for the attached order. Order
+polling stores Bybit's `buyerRealName` for sell orders or `sellerRealName` for buy orders,
+according to the order's `side`. If the name is missing locally, the details endpoint
+looks it up via `/v5/p2p/order/info` with a bounded cache using one-minute windows, including
+unavailable responses. The name is cleared when a cancelled order is detached.
 
 Bound orders are checked through `/v5/p2p/order/info` after they disappear from the pending list:
 

@@ -33,6 +33,7 @@ public class FakeBybitGateway implements BybitGateway {
     private static final String CANCELLED = "40";
     private static final String FINISHED = "50";
     private static final String FAKE_BUYER_NICKNAME = "Fake Buyer";
+    private static final String FAKE_BUYER_VERIFIED_NAME = "Иван Иванов";
     private static final String SELLER_NICKNAME = "Seller";
     private static final String FAKE_BUYER_USER_ID = "fake-buyer";
     private static final String FAKE_BUYER_ACCOUNT_ID = "fake-buyer-account";
@@ -388,7 +389,8 @@ public class FakeBybitGateway implements BybitGateway {
                     amountRub,
                     status,
                     quantityUsdt,
-                    feeUsdt
+                    feeUsdt,
+                    FAKE_BUYER_VERIFIED_NAME
             );
         }
 

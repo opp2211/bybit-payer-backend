@@ -78,7 +78,8 @@ class ForeignBybitOrderServiceTests {
                 new BigDecimal("10000"),
                 status,
                 new BigDecimal("108.25"),
-                new BigDecimal("0.30")
+                new BigDecimal("0.30"),
+                null
         );
     }
 }

@@ -33,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ConcurrentLruCache;
 import org.springframework.util.StringUtils;
 
 import ru.maltsev.bybitpayerbackend.bybit.config.BybitProperties;
@@ -50,6 +51,8 @@ public class HttpBybitGateway implements BybitGateway {
     private static final String CHAT_SESSION_PATH = "/v5/p2p/chat/session/getSessionId";
     private static final String CHAT_MESSAGES_PATH = "/v5/p2p/chat/message/listpage_v1";
     private static final String CHAT_SEND_PATH = "/v5/p2p/chat/message/send_v1";
+    private static final int ORDER_NAME_CACHE_SIZE = 256;
+    private static final Duration ORDER_NAME_CACHE_WINDOW = Duration.ofMinutes(1);
     private static final List<String> TRADING_PREFERENCE_FIELDS = List.of(
             "hasUnPostAd",
             "isKyc",
@@ -72,6 +75,8 @@ public class HttpBybitGateway implements BybitGateway {
     private final HttpClient httpClient;
     private final Object rateLimitMonitor = new Object();
     private final Map<ChatSessionCacheKey, String> chatSessionIds = new ConcurrentHashMap<>();
+    private final ConcurrentLruCache<OrderNameCacheKey, Optional<String>> orderNames =
+            new ConcurrentLruCache<>(ORDER_NAME_CACHE_SIZE, this::loadOrderName);
     private long nextRequestAtNanos;
 
     public HttpBybitGateway(BybitProperties properties, Clock clock) {
@@ -205,13 +210,36 @@ public class HttpBybitGateway implements BybitGateway {
         if (!StringUtils.hasText(bybitOrderId)) {
             return Optional.empty();
         }
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("orderId", bybitOrderId);
-        JsonNode result = post("/v5/p2p/order/info", request);
+        JsonNode result = readOrderDetails(bybitOrderId);
         if (!StringUtils.hasText(result.path("id").asText())) {
             return Optional.empty();
         }
         return Optional.of(toOrder(result));
+    }
+
+    @Override
+    public Optional<String> fetchOrderCounterpartyVerifiedName(String bybitOrderId) {
+        if (!StringUtils.hasText(bybitOrderId)) {
+            return Optional.empty();
+        }
+        long cacheWindow = clock.instant().getEpochSecond() / ORDER_NAME_CACHE_WINDOW.toSeconds();
+        return orderNames.get(new OrderNameCacheKey(apiKey(), bybitOrderId, cacheWindow));
+    }
+
+    private Optional<String> loadOrderName(OrderNameCacheKey key) {
+        try {
+            JsonNode order = readOrderDetails(key.bybitOrderId());
+            if (key.bybitOrderId().equals(order.path("id").asText())) {
+                return Optional.ofNullable(counterpartyVerifiedName(order));
+            }
+        } catch (BybitApiException exception) {
+            log.debug("Bybit counterparty name lookup failed: orderId={}", key.bybitOrderId());
+        }
+        return Optional.empty();
+    }
+
+    private JsonNode readOrderDetails(String bybitOrderId) {
+        return post("/v5/p2p/order/info", Map.of("orderId", bybitOrderId));
     }
 
     @Override
@@ -338,9 +366,7 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     private String fetchChatSessionId(String bybitOrderId) {
-        Map<String, Object> orderRequest = new LinkedHashMap<>();
-        orderRequest.put("orderId", bybitOrderId);
-        JsonNode order = post("/v5/p2p/order/info", orderRequest);
+        JsonNode order = readOrderDetails(bybitOrderId);
         String targetUserMaskId = order.path("targetUserMaskId").asText();
         if (!StringUtils.hasText(targetUserMaskId)) {
             throw new BybitApiException("Bybit order does not contain targetUserMaskId: " + bybitOrderId);
@@ -719,8 +745,21 @@ public class HttpBybitGateway implements BybitGateway {
                 amountRub,
                 String.valueOf(item.path("status").asInt()),
                 quantityUsdt,
-                feeUsdt == null ? BigDecimal.ZERO : feeUsdt
+                feeUsdt == null ? BigDecimal.ZERO : feeUsdt,
+                counterpartyVerifiedName(item)
         );
+    }
+
+    private String counterpartyVerifiedName(JsonNode order) {
+        JsonNode name = switch (order.path("side").asText()) {
+            case "0" -> order.path("sellerRealName");
+            case "1" -> order.path("buyerRealName");
+            default -> null;
+        };
+        if (name != null && name.isTextual() && StringUtils.hasText(name.asText())) {
+            return name.asText().strip();
+        }
+        return null;
     }
 
     private BigDecimal firstDecimal(String... values) {
@@ -797,6 +836,9 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     private record ChatSessionCacheKey(String apiKey, String bybitOrderId) {
+    }
+
+    private record OrderNameCacheKey(String apiKey, String bybitOrderId, long cacheWindow) {
     }
 
 }

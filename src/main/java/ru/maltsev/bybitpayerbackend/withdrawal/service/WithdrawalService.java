@@ -296,6 +296,7 @@ public class WithdrawalService {
         WithdrawalRequestEntity withdrawal = getRequiredEntity(workspace, publicId);
         return new WithdrawalDetailsResponse(
                 mapper.toResponse(withdrawal),
+                counterpartyVerifiedName(workspace, withdrawal),
                 eventRepository.findByWithdrawalRequest_IdOrderByCreatedAtAscIdAsc(withdrawal.getId()).stream()
                         .map(mapper::toEventResponse)
                         .toList(),
@@ -304,6 +305,25 @@ public class WithdrawalService {
                         .map(mapper::toReceiptCheckResponse)
                         .toList()
         );
+    }
+
+    private String counterpartyVerifiedName(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        if (!StringUtils.hasText(withdrawal.getBybitOrderId())) {
+            return null;
+        }
+        if (withdrawal.getBybitCounterpartyVerifiedName() != null) {
+            return withdrawal.getBybitCounterpartyVerifiedName();
+        }
+        String bybitOrderId = withdrawal.getBybitOrderId();
+        try {
+            return bybitCredentialsContext.callWith(
+                    workspaceSecretService.bybitCredentials(workspace),
+                    () -> bybitGateway.fetchOrderCounterpartyVerifiedName(bybitOrderId).orElse(null)
+            );
+        } catch (RuntimeException exception) {
+            log.debug("Counterparty name unavailable: orderId={}, withdrawalId={}", bybitOrderId, withdrawal.getId());
+            return null;
+        }
     }
 
     public WithdrawalResponse cancel(String workspacePublicId, String publicId) {

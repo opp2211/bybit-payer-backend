@@ -1738,6 +1738,9 @@
           "withdrawal" : {
             "$ref" : "#/components/schemas/WithdrawalResponse"
           },
+          "bybitCounterpartyVerifiedName" : {
+            "type" : [ "string", "null" ]
+          },
           "events" : {
             "type" : "array",
             "items" : {
