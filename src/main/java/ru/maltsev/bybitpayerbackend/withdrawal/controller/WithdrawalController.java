@@ -1,8 +1,14 @@
 package ru.maltsev.bybitpayerbackend.withdrawal.controller;
 
-import java.util.List;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
@@ -18,15 +24,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import ru.maltsev.bybitpayerbackend.bybit.dto.SendChatMessageRequest;
 import ru.maltsev.bybitpayerbackend.bybit.service.BybitChatService;
+import ru.maltsev.bybitpayerbackend.common.exception.BusinessException;
+import ru.maltsev.bybitpayerbackend.common.exception.EntityNotFoundException;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalSoundEventResponse;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalUpdateResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalService;
+import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalUpdatesStream;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 
 @RestController
@@ -36,6 +47,7 @@ public class WithdrawalController {
 
     private final WithdrawalService withdrawalService;
     private final BybitChatService chatService;
+    private final WithdrawalUpdatesStream updatesStream;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -67,6 +79,25 @@ public class WithdrawalController {
     @GetMapping("/sound-events")
     public List<WithdrawalSoundEventResponse> getRecentSoundEvents(@PathVariable String workspacePublicId) {
         return withdrawalService.getRecentSoundEvents(workspacePublicId);
+    }
+
+    @GetMapping(value = "/updates", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Stream committed withdrawal updates")
+    @ApiResponse(responseCode = "200", description = "SSE events: ready, withdrawal, and heartbeat",
+            content = @Content(mediaType = "text/event-stream",
+                    schema = @Schema(implementation = WithdrawalUpdateResponse.class)))
+    public ResponseEntity<SseEmitter> streamUpdates(@PathVariable String workspacePublicId, HttpSession session)
+            throws IOException {
+        try {
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CACHE_CONTROL, "no-store, no-transform")
+                    .header("X-Accel-Buffering", "no")
+                    .body(updatesStream.subscribe(workspacePublicId, session));
+        } catch (BusinessException exception) {
+            return ResponseEntity.status(exception.getStatus()).build();
+        } catch (EntityNotFoundException exception) {
+            return ResponseEntity.notFound().build();
+        }
     }
 
     @GetMapping("/{withdrawalPublicId}")

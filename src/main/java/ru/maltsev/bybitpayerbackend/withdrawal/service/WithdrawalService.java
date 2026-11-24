@@ -5,7 +5,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Supplier;
 
 import lombok.extern.slf4j.Slf4j;
@@ -61,19 +60,6 @@ public class WithdrawalService {
 
     private static final Duration SOUND_EVENT_WINDOW = Duration.ofMinutes(5);
     private static final int SOUND_EVENT_LIMIT = 100;
-    private static final Set<WithdrawalEventType> SOUND_EVENTS = Set.of(
-            WithdrawalEventType.ORDER_FOUND,
-            WithdrawalEventType.ATTENTION_REQUIRED,
-            WithdrawalEventType.ORDER_CANCELLED,
-            WithdrawalEventType.ORDER_APPEAL_STARTED,
-            WithdrawalEventType.ORDER_OBJECTION_REQUIRED,
-            WithdrawalEventType.VERIFICATION_FAILED,
-            WithdrawalEventType.RELEASE_FAILED,
-            WithdrawalEventType.BYBIT_API_ERROR,
-            WithdrawalEventType.IMAPS_ERROR,
-            WithdrawalEventType.PDF_PARSER_ERROR,
-            WithdrawalEventType.WITHDRAWAL_CANCELLATION_ABORTED
-    );
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventRepository eventRepository;
@@ -314,7 +300,7 @@ public class WithdrawalService {
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         return eventRepository.findRecentSoundEvents(
                 workspace,
-                SOUND_EVENTS,
+                WithdrawalEventType.SOUND_EVENTS,
                 Instant.now(clock).minus(SOUND_EVENT_WINDOW),
                 PageRequest.of(0, SOUND_EVENT_LIMIT)
         );

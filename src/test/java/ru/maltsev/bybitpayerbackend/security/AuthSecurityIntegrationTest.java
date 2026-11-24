@@ -1,6 +1,7 @@
 package ru.maltsev.bybitpayerbackend.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,9 +9,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 
 import jakarta.servlet.http.Cookie;
@@ -20,12 +23,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
@@ -42,6 +48,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalEventRepository;
 import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
+import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalEventService;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceMemberEntity;
 import ru.maltsev.bybitpayerbackend.workspace.model.WorkspaceMemberRole;
@@ -76,6 +83,12 @@ class AuthSecurityIntegrationTest {
 
     @Autowired
     private WithdrawalEventRepository withdrawalEventRepository;
+
+    @Autowired
+    private WithdrawalEventService withdrawalEventService;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void createPersistentLoginTable() {
@@ -171,12 +184,7 @@ class AuthSecurityIntegrationTest {
         WithdrawalRequestEntity withdrawal = withdrawal(workspace, now);
         WithdrawalRequestEntity otherWithdrawal = withdrawal(otherWorkspace, now);
 
-        WorkspaceMemberEntity membership = new WorkspaceMemberEntity();
-        membership.setWorkspace(workspace);
-        membership.setUser(operator);
-        membership.setRole(WorkspaceMemberRole.OWNER);
-        membership.setCreatedAt(now);
-        workspaceMemberRepository.save(membership);
+        addMembership(workspace, operator, now);
 
         addEvent(withdrawal, WithdrawalEventType.ORDER_FOUND, now.minusSeconds(10));
         addEvent(withdrawal, WithdrawalEventType.ORDER_CANCELLED, now.minusSeconds(5));
@@ -194,6 +202,72 @@ class AuthSecurityIntegrationTest {
         mockMvc.perform(get("/api/workspaces/{workspacePublicId}/withdrawals/sound-events", otherWorkspace.getPublicId())
                         .with(user("operator")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void streamsCommittedUpdatesOnlyForAnAccessibleWorkspace() throws Exception {
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+        WithdrawalRequestEntity withdrawal = transactions.execute(status -> {
+            UserEntity operator = userRepository.findByUsernameNormalized("operator").orElseThrow();
+            Instant now = Instant.now();
+            WorkspaceEntity workspace = workspace("DAA0003", operator, now);
+            addMembership(workspace, operator, now);
+            workspace("DAA0004", operator, now);
+            WithdrawalRequestEntity entity = withdrawal(workspace, now);
+            entity.setPublicId("DAA0005");
+            return entity;
+        });
+        assertThat(withdrawal).isNotNull();
+        MockHttpSession session = new MockHttpSession();
+        String updatesUrl = "/api/workspaces/{workspacePublicId}/withdrawals/updates";
+
+        try {
+            mockMvc.perform(get(updatesUrl, "DAA0003").accept(MediaType.TEXT_EVENT_STREAM))
+                    .andExpect(status().isUnauthorized());
+            mockMvc.perform(get(updatesUrl, "DAA0004").accept(MediaType.TEXT_EVENT_STREAM).with(user("operator")))
+                    .andExpect(status().isForbidden());
+
+            MvcResult stream = mockMvc.perform(get(updatesUrl, "DAA0003")
+                            .accept(MediaType.TEXT_EVENT_STREAM).with(user("operator")).session(session))
+                    .andExpect(request().asyncStarted())
+                    .andExpect(header().string("X-Accel-Buffering", "no"))
+                    .andReturn();
+            assertThat(stream.getResponse().getContentAsString()).contains("event:ready");
+
+            transactions.executeWithoutResult(status -> {
+                WithdrawalRequestEntity entity = withdrawalRepository.findById(withdrawal.getId()).orElseThrow();
+                withdrawalEventService.add(entity, WithdrawalEventType.ORDER_CANCELLED, "Rolled back");
+                status.setRollbackOnly();
+            });
+            transactions.executeWithoutResult(status -> {
+                WithdrawalRequestEntity entity = withdrawalRepository.findById(withdrawal.getId()).orElseThrow();
+                withdrawalEventService.add(entity, WithdrawalEventType.ORDER_FOUND, "Committed");
+            });
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThat(stream.getResponse().getContentAsString())
+                            .contains("event:withdrawal", "\"withdrawalPublicId\":\"DAA0005\"",
+                                    "\"eventType\":\"ORDER_FOUND\"", "\"soundEvent\":true")
+                            .doesNotContain("ORDER_CANCELLED", "Rolled back")
+            );
+        } finally {
+            session.invalidate();
+            transactions.executeWithoutResult(status -> {
+                jdbcTemplate.update("delete from withdrawal_events where withdrawal_request_id = ?", withdrawal.getId());
+                jdbcTemplate.update("delete from withdrawal_requests where id = ?", withdrawal.getId());
+                jdbcTemplate.update("delete from workspace_members where workspace_id = ?", withdrawal.getWorkspace().getId());
+                jdbcTemplate.update("delete from workspaces where public_id in (?, ?)", "DAA0003", "DAA0004");
+            });
+        }
+    }
+
+    private void addMembership(WorkspaceEntity workspace, UserEntity user, Instant now) {
+        WorkspaceMemberEntity membership = new WorkspaceMemberEntity();
+        membership.setWorkspace(workspace);
+        membership.setUser(user);
+        membership.setRole(WorkspaceMemberRole.OWNER);
+        membership.setCreatedAt(now);
+        workspaceMemberRepository.save(membership);
     }
 
     private WorkspaceEntity workspace(String id, UserEntity owner, Instant now) {

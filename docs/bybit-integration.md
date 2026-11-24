@@ -181,6 +181,12 @@ and objections, and withdrawal errors. The first response establishes a baseline
 browser, and chat activity is excluded. The existing completion sound uses unseen completed
 withdrawals.
 
+`GET /api/workspaces/{workspacePublicId}/withdrawals/updates` streams `ready`, `withdrawal`,
+and `heartbeat` as server-sent events. Withdrawal events are published after the database
+commit. The stream checks the authenticated session and workspace membership. The frontend
+refreshes the affected withdrawal queries and reads recent sound events on demand, including
+after reconnecting. Bybit order polling and chat reads retain their own schedules.
+
 ## Notes
 
 Managed advertisement rebuilds propagate failures without logging them inside

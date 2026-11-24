@@ -696,6 +696,33 @@
         }
       }
     },
+    "/api/workspaces/{workspacePublicId}/withdrawals/updates" : {
+      "get" : {
+        "tags" : [ "withdrawal-controller" ],
+        "summary" : "Stream committed withdrawal updates",
+        "operationId" : "streamUpdates",
+        "parameters" : [ {
+          "name" : "workspacePublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "SSE events: ready, withdrawal, and heartbeat",
+            "content" : {
+              "text/event-stream" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/WithdrawalUpdateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{workspacePublicId}/withdrawals/sound-events" : {
       "get" : {
         "tags" : [ "withdrawal-controller" ],
@@ -1815,6 +1842,25 @@
           "createdAt" : {
             "type" : "string",
             "format" : "date-time"
+          }
+        }
+      },
+      "WithdrawalUpdateResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "withdrawalPublicId" : {
+            "type" : "string"
+          },
+          "eventType" : {
+            "type" : "string",
+            "enum" : [ "WITHDRAWAL_CREATED", "WITHDRAWAL_QUEUED", "WITHDRAWAL_PUBLISHED", "ADVERTISEMENT_UPDATED", "WITHDRAWAL_REMOVED_FROM_AD", "ORDER_FOUND", "ORDER_CANCELLED", "ORDER_COMPLETED_EXTERNALLY", "ORDER_APPEAL_STARTED", "ORDER_OBJECTION_REQUIRED", "WITHDRAWAL_RETURNED_TO_WORK", "REQUISITES_SENT", "CHAT_MESSAGE_SENT", "ORDER_PAID", "MAIL_CHECK_STARTED", "EMAIL_FOUND", "PDF_FOUND", "PDF_PARSED", "VERIFICATION_SUCCEEDED", "VERIFICATION_FAILED", "RELEASE_SUCCEEDED", "RELEASE_FAILED", "MANUAL_RELEASE_SUCCEEDED", "ATTENTION_REQUIRED", "COMPLETION_SEEN", "BYBIT_API_ERROR", "IMAPS_ERROR", "PDF_PARSER_ERROR", "WITHDRAWAL_CANCELLED", "WITHDRAWAL_CANCELLATION_STARTED", "WITHDRAWAL_CANCELLATION_ABORTED", "SYSTEM_RESYNC" ]
+          },
+          "soundEvent" : {
+            "type" : "boolean"
           }
         }
       },

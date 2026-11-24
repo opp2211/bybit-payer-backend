@@ -1,5 +1,7 @@
 package ru.maltsev.bybitpayerbackend.withdrawal.model;
 
+import java.util.Set;
+
 public enum WithdrawalEventType {
     WITHDRAWAL_CREATED,
     WITHDRAWAL_QUEUED,
@@ -32,5 +34,11 @@ public enum WithdrawalEventType {
     WITHDRAWAL_CANCELLED,
     WITHDRAWAL_CANCELLATION_STARTED,
     WITHDRAWAL_CANCELLATION_ABORTED,
-    SYSTEM_RESYNC
+    SYSTEM_RESYNC;
+
+    public static final Set<WithdrawalEventType> SOUND_EVENTS = Set.of(
+            ORDER_FOUND, ATTENTION_REQUIRED, ORDER_CANCELLED, ORDER_APPEAL_STARTED, ORDER_OBJECTION_REQUIRED,
+            VERIFICATION_FAILED, RELEASE_FAILED, BYBIT_API_ERROR, IMAPS_ERROR, PDF_PARSER_ERROR,
+            WITHDRAWAL_CANCELLATION_ABORTED
+    );
 }
