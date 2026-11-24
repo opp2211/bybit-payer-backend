@@ -169,8 +169,11 @@ as `Успешно` by substring matching.
 For withdrawals with `requireSenderFirstParty` enabled, automatic release also checks the
 receipt's `Отправитель` against the verified name from the attached Bybit order. Names are
 compared case-insensitively using the first and third words for three-word names or both words
-for two-word names. A missing, unsupported, or mismatched name fails receipt verification and
-shows an error in withdrawal details. This also applies when retrying release with a saved receipt.
+for two-word names. Russian Cyrillic and Latin names can also match after exact transliteration
+using the Russian letter mappings in [ICAO Doc 9303, Part 3](https://www.icao.int/publications/Documents/9303_p3_cons_en.pdf).
+Missing, unsupported, and mismatched names require operator review and show an error in
+withdrawal details. This includes differences such as a missing letter or an alternative spelling.
+The same check applies when retrying release with a saved receipt.
 
 ## Notes
 

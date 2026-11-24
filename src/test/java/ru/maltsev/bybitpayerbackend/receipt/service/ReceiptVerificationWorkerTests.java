@@ -21,7 +21,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
@@ -170,12 +169,18 @@ class ReceiptVerificationWorkerTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"ИВАН ПЕТРОВИЧ СИДОРОВ", "ИВАН СИДОРОВ"})
-    void releasesFirstPartyOrderWhenSenderMatchesVerifiedName(String bybitName) {
+    @CsvSource(delimiter = '|', value = {
+            "Иван Сидоров | ИВАН ПЕТРОВИЧ СИДОРОВ",
+            "Иван Сидоров | ИВАН СИДОРОВ",
+            "Михаил Грищенко | MIKHAIL ANDREEVICH GRISHCHENKO",
+            "Михаил Грищенко | MIKHAIL GRISHCHENKO",
+            "Mikhail Grishchenko | МИХАИЛ ГРИЩЕНКО"
+    })
+    void releasesFirstPartyOrderWhenSenderMatchesVerifiedName(String sender, String bybitName) {
         Fixture fixture = new Fixture();
         WithdrawalRequestEntity withdrawal = firstPartyWithdrawal(fixture);
         withdrawal.setBybitCounterpartyVerifiedName(bybitName);
-        fixture.receiveValidReceipt(withdrawal, "Иван Сидоров");
+        fixture.receiveValidReceipt(withdrawal, sender);
 
         fixture.worker.verifyPendingPayments();
 
@@ -189,6 +194,9 @@ class ReceiptVerificationWorkerTests {
     @ParameterizedTest
     @CsvSource(delimiter = '|', nullValues = "NULL", value = {
             "Иван Петров | ИВАН ПЕТРОВ СИДОРОВ | не совпадают",
+            "Михаил Грищенко | MIKHAL ANDREEVICH GRISHCHENKO | не совпадают",
+            "Михаил Грищенко | MIKHAIL PETROV | не совпадают",
+            "Семён Петров | СЕМЕН ПЕТРОВ | не совпадают",
             "NULL | ИВАН СИДОРОВ | не найдено поле «Отправитель»",
             "Иван Сидоров | NULL | Bybit не предоставил верифицированное имя"
     })

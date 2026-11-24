@@ -1,9 +1,12 @@
 package ru.maltsev.bybitpayerbackend.receipt.service;
 
+import static java.util.Map.entry;
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Service;
@@ -22,6 +25,17 @@ public class TinkoffReceiptValidator {
     private static final String BANK_WITHOUT_RECIPIENT_LABEL = "Т-банк";
     private static final Pattern NAME_SPACES = Pattern.compile("\\s+", Pattern.UNICODE_CHARACTER_CLASS);
     private static final Pattern NAME_WORD = Pattern.compile("\\p{L}[\\p{L}\\p{M}]*(?:[-'’]\\p{L}[\\p{L}\\p{M}]*)*");
+    private static final Pattern RUSSIAN_NAME = Pattern.compile("[а-яё '’-]+");
+    private static final Map<Character, String> RUSSIAN_TRANSLITERATION = Map.ofEntries(
+            entry('а', "a"), entry('б', "b"), entry('в', "v"), entry('г', "g"),
+            entry('д', "d"), entry('е', "e"), entry('ё', "e"), entry('ж', "zh"),
+            entry('з', "z"), entry('и', "i"), entry('й', "i"), entry('к', "k"),
+            entry('л', "l"), entry('м', "m"), entry('н', "n"), entry('о', "o"),
+            entry('п', "p"), entry('р', "r"), entry('с', "s"), entry('т', "t"),
+            entry('у', "u"), entry('ф', "f"), entry('х', "kh"), entry('ц', "ts"),
+            entry('ч', "ch"), entry('ш', "sh"), entry('щ', "shch"), entry('ъ', "ie"),
+            entry('ы', "y"), entry('ь', ""), entry('э', "e"), entry('ю', "iu"), entry('я', "ia")
+    );
     private static final List<String> RECIPIENT_BANK_LABELS = List.of(
             "Банк получателя",
             "Банк карты получателя"
@@ -89,8 +103,26 @@ public class TinkoffReceiptValidator {
             return "Не удалось определить имя и фамилию контрагента по данным Bybit";
         }
         return receiptName.equals(expectedName)
+                || transliteratesAs(receiptName, expectedName)
+                || transliteratesAs(expectedName, receiptName)
                 ? null
                 : "Имя и фамилия отправителя в чеке не совпадают с верифицированным именем контрагента на Bybit";
+    }
+
+    private static boolean transliteratesAs(String russianName, String latinName) {
+        if (!RUSSIAN_NAME.matcher(russianName).matches()) {
+            return false;
+        }
+        StringBuilder transliterated = new StringBuilder(russianName.length());
+        for (char character : russianName.toCharArray()) {
+            String replacement = RUSSIAN_TRANSLITERATION.get(character);
+            if (replacement == null) {
+                transliterated.append(character);
+            } else {
+                transliterated.append(replacement);
+            }
+        }
+        return latinName.contentEquals(transliterated);
     }
 
     private static String firstAndLastName(String value) {
