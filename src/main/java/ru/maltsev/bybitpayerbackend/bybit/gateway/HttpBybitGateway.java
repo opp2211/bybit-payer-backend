@@ -352,12 +352,21 @@ public class HttpBybitGateway implements BybitGateway {
 
     @Override
     public void sendChatMessage(String bybitOrderId, String messageUuid, String messageText) {
+        post(CHAT_SEND_PATH, chatMessageRequest(bybitOrderId, messageText));
+    }
+
+    @Override
+    public void sendChatMessageOnce(String bybitOrderId, String messageUuid, String messageText) {
+        post(CHAT_SEND_PATH, chatMessageRequest(bybitOrderId, messageText), false);
+    }
+
+    private Map<String, Object> chatMessageRequest(String bybitOrderId, String messageText) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("message", messageText);
         request.put("contentType", "str");
         request.put("sessionId", chatSessionId(bybitOrderId));
         request.put("orderId", bybitOrderId);
-        post(CHAT_SEND_PATH, request);
+        return request;
     }
 
     private String chatSessionId(String bybitOrderId) {
@@ -447,8 +456,13 @@ public class HttpBybitGateway implements BybitGateway {
     }
 
     private JsonNode post(String path, Map<String, Object> requestBody) {
+        return post(path, requestBody, true);
+    }
+
+    private JsonNode post(String path, Map<String, Object> requestBody, boolean retry) {
         try {
-            return sendWithRetry("POST", path, "", objectMapper.writeValueAsString(requestBody));
+            String body = objectMapper.writeValueAsString(requestBody);
+            return retry ? sendWithRetry("POST", path, "", body) : send("POST", path, "", body);
         } catch (JsonProcessingException exception) {
             throw new BybitApiException("Failed to serialize Bybit request body", exception);
         }
@@ -740,13 +754,15 @@ public class HttpBybitGateway implements BybitGateway {
                 item.path("makerFee").asText(),
                 item.path("takerFee").asText()
         );
+        Instant paymentConfirmedAt = instantFromMillis(item.path("transferDate").asText());
         return new BybitP2pOrder(
                 item.path("id").asText(),
                 amountRub,
                 String.valueOf(item.path("status").asInt()),
                 quantityUsdt,
                 feeUsdt == null ? BigDecimal.ZERO : feeUsdt,
-                counterpartyVerifiedName(item)
+                counterpartyVerifiedName(item),
+                paymentConfirmedAt != null && paymentConfirmedAt.isAfter(Instant.EPOCH) ? paymentConfirmedAt : null
         );
     }
 

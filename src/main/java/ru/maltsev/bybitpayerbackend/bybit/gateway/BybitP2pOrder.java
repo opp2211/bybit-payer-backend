@@ -1,6 +1,7 @@
 package ru.maltsev.bybitpayerbackend.bybit.gateway;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 public record BybitP2pOrder(
         String bybitOrderId,
@@ -8,7 +9,8 @@ public record BybitP2pOrder(
         String status,
         BigDecimal quantityUsdt,
         BigDecimal feeUsdt,
-        String counterpartyVerifiedName
+        String counterpartyVerifiedName,
+        Instant paymentConfirmedAt
 ) {
 
     private static final String WAITING_SELLER_RELEASE = "20";

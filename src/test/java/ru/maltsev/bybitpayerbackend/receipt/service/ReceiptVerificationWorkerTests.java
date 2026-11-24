@@ -24,7 +24,9 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 
 import ru.maltsev.bybitpayerbackend.bank.entity.BankEntity;
+import ru.maltsev.bybitpayerbackend.bybit.entity.BybitOrderBindingEntity;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
+import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.bybit.repository.BybitOrderBindingRepository;
 import ru.maltsev.bybitpayerbackend.receipt.config.ReceiptMailProperties;
 import ru.maltsev.bybitpayerbackend.receipt.dto.ParsedTinkoffReceipt;
@@ -130,6 +132,10 @@ class ReceiptVerificationWorkerTests {
         verifiedCheck.setId(10L);
         verifiedCheck.setWithdrawalRequest(withdrawal);
         verifiedCheck.setVerificationStatus(ReceiptVerificationStatus.VERIFIED);
+        BybitOrderBindingEntity binding = new BybitOrderBindingEntity();
+        binding.setStatus(OrderBindingStatus.ACTIVE);
+        when(fixture.bindingRepository.findByWithdrawalRequest_IdAndStatus(1L, OrderBindingStatus.ACTIVE))
+                .thenReturn(Optional.of(binding));
 
         when(fixture.withdrawalRepository.findByStatusOrderByCreatedAtAscIdAsc(WithdrawalStatus.PAYMENT_VERIFICATION))
                 .thenReturn(List.of(withdrawal));
@@ -144,6 +150,7 @@ class ReceiptVerificationWorkerTests {
         fixture.worker.verifyPendingPayments();
 
         assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
+        assertThat(binding.isCompletionThanksRequested()).isTrue();
         verify(fixture.bybitGateway).releaseOrder("order-1");
         verify(fixture.mailService, never()).findForWithdrawal(any(), any());
     }

@@ -241,6 +241,7 @@ class BybitOrderWatcherTests {
         fixture.watcher.pollActiveOrders();
 
         assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.CANCELLED);
+        assertThat(fixture.binding.isCompletionThanksRequested()).isFalse();
         assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.NEW);
         assertThat(fixture.withdrawal.getBybitOrderId()).isNull();
         assertThat(fixture.withdrawal.getBybitCounterpartyVerifiedName()).isNull();
@@ -256,6 +257,7 @@ class BybitOrderWatcherTests {
         fixture.watcher.pollActiveOrders();
 
         assertThat(fixture.binding.getStatus()).isEqualTo(OrderBindingStatus.RELEASED);
+        assertThat(fixture.binding.isCompletionThanksRequested()).isTrue();
         assertThat(fixture.withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
         assertThat(fixture.withdrawal.getBybitCounterpartyVerifiedName()).isEqualTo("Иван Иванов");
         assertThat(fixture.withdrawal.getCompletedAt()).isEqualTo(NOW);
@@ -398,7 +400,8 @@ class BybitOrderWatcherTests {
                 status,
                 new BigDecimal("108.25"),
                 new BigDecimal("0.30"),
-                "Иван Иванов"
+                "Иван Иванов",
+                null
         );
     }
 

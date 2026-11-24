@@ -54,6 +54,7 @@ public class BybitChatService {
             Работаю ТОЛЬКО с первыми лицами - Имя Ф. отправителя должны совпадать с верифицированным именем на Bybit.
             Это ВАЖНО! Если вы совершите платеж от 3 лица, без согласования, я буду делать возврат отправителю, но, поверьте, это будет очень долго""";
     private static final String TEXT_CONTENT_TYPE = "str";
+    private static final String THANKS_MESSAGE = "Спасибо";
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventService eventService;
@@ -213,24 +214,37 @@ public class BybitChatService {
                 continue;
             }
             String message = rawMessage.trim();
-            SentChatMessage sentMessage;
-            if (effectiveWorkspace != null && workspaceSecretService != null) {
-                sentMessage = bybitCredentialsContext.callWith(
-                        workspaceSecretService.bybitCredentials(effectiveWorkspace),
-                        () -> sendBybitMessage(withdrawal, message)
-                );
-            } else {
-                sentMessage = sendBybitMessage(withdrawal, message);
-            }
-            if (sentMessage == null) {
+            if (!sendBotMessage(effectiveWorkspace, withdrawal, message, true)) {
                 allSent = false;
-            } else {
-                storeBotMessage(effectiveWorkspace, withdrawal, sentMessage);
-                appendSentMessageToCache(effectiveWorkspace, withdrawal, sentMessage);
             }
             sleepBetweenMessages();
         }
         return allSent;
+    }
+
+    @Transactional
+    public void sendOrderThanks(WorkspaceEntity workspace, WithdrawalRequestEntity withdrawal) {
+        sendBotMessage(effectiveWorkspace(workspace, withdrawal), withdrawal, THANKS_MESSAGE, false);
+    }
+
+    private boolean sendBotMessage(
+            WorkspaceEntity workspace,
+            WithdrawalRequestEntity withdrawal,
+            String text,
+            boolean retry
+    ) {
+        SentChatMessage sentMessage = workspace != null && workspaceSecretService != null
+                ? bybitCredentialsContext.callWith(
+                        workspaceSecretService.bybitCredentials(workspace),
+                        () -> sendBybitMessage(withdrawal, text, retry)
+                )
+                : sendBybitMessage(withdrawal, text, retry);
+        if (sentMessage == null) {
+            return false;
+        }
+        storeBotMessage(workspace, withdrawal, sentMessage);
+        appendSentMessageToCache(workspace, withdrawal, sentMessage);
+        return true;
     }
 
     @Transactional
@@ -490,9 +504,17 @@ public class BybitChatService {
     }
 
     private SentChatMessage sendBybitMessage(WithdrawalRequestEntity withdrawal, String messageText) {
+        return sendBybitMessage(withdrawal, messageText, true);
+    }
+
+    private SentChatMessage sendBybitMessage(WithdrawalRequestEntity withdrawal, String messageText, boolean retry) {
         String messageUuid = UUID.randomUUID().toString();
         try {
-            bybitGateway.sendChatMessage(withdrawal.getBybitOrderId(), messageUuid, messageText);
+            if (retry) {
+                bybitGateway.sendChatMessage(withdrawal.getBybitOrderId(), messageUuid, messageText);
+            } else {
+                bybitGateway.sendChatMessageOnce(withdrawal.getBybitOrderId(), messageUuid, messageText);
+            }
             return new SentChatMessage(messageUuid, messageText);
         } catch (Exception exception) {
             log.warn(

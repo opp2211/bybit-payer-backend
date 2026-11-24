@@ -638,7 +638,7 @@ public class BybitOrderWatcher {
             WithdrawalRequestEntity withdrawal,
             BybitP2pOrder order
     ) {
-        binding.setStatus(OrderBindingStatus.RELEASED);
+        binding.markReleased();
         bindingRepository.save(binding);
 
         withdrawal.setStatus(WithdrawalStatus.COMPLETED);

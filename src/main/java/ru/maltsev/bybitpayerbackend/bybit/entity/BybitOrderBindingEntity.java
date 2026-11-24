@@ -14,9 +14,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.DynamicUpdate;
 import ru.maltsev.bybitpayerbackend.bybit.model.OrderBindingStatus;
 import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
@@ -25,6 +27,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 @Setter
 @NoArgsConstructor
 @Entity
+@DynamicUpdate
 @Table(name = "bybit_order_bindings")
 public class BybitOrderBindingEntity {
 
@@ -52,4 +55,16 @@ public class BybitOrderBindingEntity {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    @Column(name = "completion_thanks_requested", nullable = false)
+    private boolean completionThanksRequested;
+
+    @Setter(AccessLevel.NONE)
+    @Column(name = "completion_thanks_processed", nullable = false)
+    private boolean completionThanksProcessed;
+
+    public void markReleased() {
+        status = OrderBindingStatus.RELEASED;
+        completionThanksRequested = true;
+    }
 }

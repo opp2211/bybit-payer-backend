@@ -89,6 +89,7 @@ class WithdrawalServiceTests {
         assertThat(withdrawal.getStatus()).isEqualTo(WithdrawalStatus.COMPLETED);
         assertThat(withdrawal.getCompletedAt()).isEqualTo(NOW);
         assertThat(binding.getStatus()).isEqualTo(OrderBindingStatus.RELEASED);
+        assertThat(binding.isCompletionThanksRequested()).isTrue();
         verify(gateway).releaseOrder("order-1");
     }
 

@@ -79,6 +79,7 @@ class ForeignBybitOrderServiceTests {
                 status,
                 new BigDecimal("108.25"),
                 new BigDecimal("0.30"),
+                null,
                 null
         );
     }

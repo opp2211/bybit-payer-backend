@@ -243,6 +243,7 @@ class HttpBybitGatewayTests {
                     "side": 1,
                     "buyerRealName": "Ivan Buyer",
                     "targetNickName": "marketbuyer",
+                    "transferDate": "1741769400000",
                     "status": 50
                   }
                 }
@@ -266,6 +267,7 @@ class HttpBybitGatewayTests {
             assertThat(order.feeUsdt()).isEqualByComparingTo("0.30");
             assertThat(order.totalUsdt()).isEqualByComparingTo("108.55");
             assertThat(order.counterpartyVerifiedName()).isEqualTo("Ivan Buyer");
+            assertThat(order.paymentConfirmedAt()).isEqualTo(Instant.ofEpochMilli(1741769400000L));
             assertThat(gateway.fetchOrderCounterpartyVerifiedName("order-123")).contains("Ivan Buyer");
             assertThat(gateway.fetchOrderCounterpartyVerifiedName("order-123")).contains("Ivan Buyer");
             assertThat(orderRequests).hasValue(2);
@@ -279,6 +281,7 @@ class HttpBybitGatewayTests {
         AtomicInteger orderRequests = new AtomicInteger();
         AtomicInteger sessionRequests = new AtomicInteger();
         AtomicInteger chatRequests = new AtomicInteger();
+        AtomicInteger sendRequests = new AtomicInteger();
         AtomicReference<JsonNode> sendPayload = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v5/p2p/order/info", exchange -> {
@@ -357,7 +360,14 @@ class HttpBybitGatewayTests {
             }
         });
         server.createContext("/v5/p2p/chat/message/send_v1", exchange -> {
-            sendPayload.set(objectMapper.readTree(exchange.getRequestBody()));
+            JsonNode payload = objectMapper.readTree(exchange.getRequestBody());
+            sendPayload.set(payload);
+            sendRequests.incrementAndGet();
+            if ("Спасибо".equals(payload.path("message").asText())) {
+                exchange.sendResponseHeaders(503, -1);
+                exchange.close();
+                return;
+            }
             respond(exchange, """
                     {"ret_code":0,"ret_msg":"","result":{}}
                     """);
@@ -371,6 +381,7 @@ class HttpBybitGatewayTests {
             properties.setApiSecret("test-api-secret");
             properties.setP2pAdId("ad-123");
             properties.setChatMessagePageSize(2);
+            properties.setRetryMaxAttempts(3);
             HttpBybitGateway gateway = new HttpBybitGateway(properties, Clock.systemUTC());
 
             List<BybitChatMessage> messages = gateway.fetchChatMessages("order-123");
@@ -390,6 +401,11 @@ class HttpBybitGatewayTests {
             assertThat(sendPayload.get().path("orderId").asText()).isEqualTo("order-123");
             assertThat(sendPayload.get().path("message").asText()).isEqualTo("Добрый день");
             assertThat(sendPayload.get().has("msgUuid")).isFalse();
+
+            assertThatThrownBy(() -> gateway.sendChatMessageOnce("order-123", "another-uuid", "Спасибо"))
+                    .isInstanceOf(BybitApiException.class)
+                    .hasMessageContaining("503");
+            assertThat(sendRequests).hasValue(2);
         } finally {
             server.stop(0);
         }

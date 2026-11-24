@@ -218,6 +218,7 @@ public class FakeBybitGateway implements BybitGateway {
                 BigDecimal.ZERO.setScale(businessProperties.getUsdtQuantityScale(), RoundingMode.UNNECESSARY),
                 now,
                 now,
+                null,
                 List.of()
         );
         orders.put(orderId, order);
@@ -376,6 +377,7 @@ public class FakeBybitGateway implements BybitGateway {
             BigDecimal feeUsdt,
             Instant createdAt,
             Instant updatedAt,
+            Instant paymentConfirmedAt,
             List<SimulatedChatMessage> messages
     ) {
 
@@ -390,7 +392,8 @@ public class FakeBybitGateway implements BybitGateway {
                     status,
                     quantityUsdt,
                     feeUsdt,
-                    FAKE_BUYER_VERIFIED_NAME
+                    FAKE_BUYER_VERIFIED_NAME,
+                    paymentConfirmedAt
             );
         }
 
@@ -404,6 +407,7 @@ public class FakeBybitGateway implements BybitGateway {
                     feeUsdt,
                     createdAt,
                     updatedAt,
+                    paymentConfirmedAt == null && WAITING_SELLER_RELEASE.equals(status) ? updatedAt : paymentConfirmedAt,
                     messages
             );
         }
@@ -418,6 +422,7 @@ public class FakeBybitGateway implements BybitGateway {
                     feeUsdt,
                     createdAt,
                     updatedAt,
+                    paymentConfirmedAt,
                     messages
             );
         }

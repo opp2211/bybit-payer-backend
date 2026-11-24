@@ -139,7 +139,7 @@ is online (status `10`).
   and `nickName` used for chat author classification.
 - `POST /v5/p2p/chat/session/getSessionId` — obtain the encrypted chat `sessionId`; the gateway caches
   it per API key/order for the process lifetime.
-- `POST /v5/p2p/chat/message/send_v1` — send requisites and operator messages to order chat.
+- `POST /v5/p2p/chat/message/send_v1` — send requisites, completion thanks, and operator messages to order chat.
 - `POST /v5/p2p/chat/message/listpage_v1` — read the full order chat history shown in withdrawal details.
   The gateway reads pages of up to 30 messages until a page returns fewer messages or
   `BYBIT_CHAT_MESSAGE_MAX_PAGES` is reached.
@@ -272,6 +272,14 @@ as the last automatic message, after any receipt email. The warning asks the buy
 from an account in their verified Bybit name and explains that unapproved third-party
 payments will be returned to the sender. Operators can send additional messages from the
 withdrawal details.
+
+When a bound order is successfully released, the binding schedules the message `Спасибо`.
+The sender checks the buyer's `transferDate` in `/v5/p2p/order/info` against the recorded
+completion time and sends only for elapsed times from zero through three minutes. When
+release is detected by polling Bybit, the recorded completion time is the time of detection.
+Unknown payment times are skipped. The worker claims each binding after the completion
+transaction commits and attempts the chat send once, since the Bybit chat endpoint has no
+idempotency key. A chat failure leaves the completed withdrawal intact.
 
 For `TBANK_AUTO + SBP`, receipt verification checks `Успешно`, the transfer amount
 from the `Сумма` field, recipient phone, recipient name, and recipient bank rules.

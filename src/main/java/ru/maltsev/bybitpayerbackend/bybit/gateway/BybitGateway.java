@@ -34,5 +34,9 @@ public interface BybitGateway {
 
     void sendChatMessage(String bybitOrderId, String messageUuid, String messageText);
 
+    default void sendChatMessageOnce(String bybitOrderId, String messageUuid, String messageText) {
+        sendChatMessage(bybitOrderId, messageUuid, messageText);
+    }
+
     void releaseOrder(String bybitOrderId);
 }

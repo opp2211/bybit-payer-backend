@@ -56,6 +56,21 @@ class BybitChatServiceTests {
     }
 
     @Test
+    void sendsExactlyTheFixedThanksTextWithoutTransportRetry() {
+        BybitGateway bybitGateway = mock(BybitGateway.class);
+        BybitChatService service = service(
+                mock(WithdrawalRequestRepository.class), mock(WithdrawalEventService.class), bybitGateway
+        );
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setBybitOrderId("order-7");
+
+        service.sendOrderThanks(null, withdrawal);
+
+        verify(bybitGateway).sendChatMessageOnce(eq("order-7"), anyString(), eq("Спасибо"));
+        verify(bybitGateway, never()).sendChatMessage(anyString(), anyString(), anyString());
+    }
+
+    @Test
     void returnsRemoteChatHistoryOnly() {
         WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
         withdrawal.setId(7L);

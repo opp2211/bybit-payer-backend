@@ -314,7 +314,7 @@ public class ReceiptVerificationWorker {
 
             bindingRepository.findByWithdrawalRequest_IdAndStatus(withdrawal.getId(), OrderBindingStatus.ACTIVE)
                     .ifPresent(binding -> {
-                        binding.setStatus(OrderBindingStatus.RELEASED);
+                        binding.markReleased();
                         bindingRepository.save(binding);
                     });
 

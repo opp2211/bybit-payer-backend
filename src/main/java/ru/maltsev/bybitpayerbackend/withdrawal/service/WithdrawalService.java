@@ -574,7 +574,7 @@ public class WithdrawalService {
                 .orElseThrow(() -> BusinessException.conflict("Active Bybit order binding not found"));
 
         bybitGateway.releaseOrder(withdrawal.getBybitOrderId());
-        binding.setStatus(OrderBindingStatus.RELEASED);
+        binding.markReleased();
         bindingRepository.save(binding);
 
         withdrawal.setStatus(WithdrawalStatus.COMPLETED);
@@ -610,7 +610,7 @@ public class WithdrawalService {
                 workspaceSecretService.bybitCredentials(workspace),
                 () -> bybitGateway.releaseOrder(withdrawal.getBybitOrderId())
         );
-        binding.setStatus(OrderBindingStatus.RELEASED);
+        binding.markReleased();
         bindingRepository.save(binding);
 
         withdrawal.setStatus(WithdrawalStatus.COMPLETED);
