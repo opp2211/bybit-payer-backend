@@ -23,6 +23,19 @@ public interface WithdrawalRequestRepository extends JpaRepository<WithdrawalReq
 
     Optional<WithdrawalRequestEntity> findByWorkspaceAndPublicId(WorkspaceEntity workspace, String publicId);
 
+    @Query("""
+            select withdrawal
+            from WithdrawalRequestEntity withdrawal
+            join fetch withdrawal.workspace workspace
+            where workspace.id = :workspaceId
+              and workspace.deletedAt is null
+              and withdrawal.publicId = :publicId
+              and withdrawal.bybitOrderId is not null
+            """)
+    Optional<WithdrawalRequestEntity> findLinkedChatWithdrawal(
+            @Param("workspaceId") Long workspaceId, @Param("publicId") String publicId
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             select withdrawal

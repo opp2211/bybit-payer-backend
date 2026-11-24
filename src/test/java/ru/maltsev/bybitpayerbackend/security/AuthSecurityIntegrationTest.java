@@ -2,6 +2,7 @@ package ru.maltsev.bybitpayerbackend.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -15,6 +16,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +38,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitChatMessage;
+import ru.maltsev.bybitpayerbackend.bybit.gateway.BybitGateway;
 import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
 import ru.maltsev.bybitpayerbackend.common.logging.RequestLoggingFilter;
 import ru.maltsev.bybitpayerbackend.security.config.SecurityConfig;
@@ -89,6 +95,9 @@ class AuthSecurityIntegrationTest {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private BybitGateway bybitGateway;
 
     @BeforeEach
     void createPersistentLoginTable() {
@@ -257,6 +266,96 @@ class AuthSecurityIntegrationTest {
                 jdbcTemplate.update("delete from withdrawal_requests where id = ?", withdrawal.getId());
                 jdbcTemplate.update("delete from workspace_members where workspace_id = ?", withdrawal.getWorkspace().getId());
                 jdbcTemplate.update("delete from workspaces where public_id in (?, ?)", "DAA0003", "DAA0004");
+            });
+        }
+    }
+
+    @Test
+    void streamsBybitChatChangesToBothViewersOfTheOrder() throws Exception {
+        String workspaceId = "DAA0006";
+        String publicId = "DAA0007";
+        String orderId = "chat-stream-order";
+        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
+        WithdrawalRequestEntity withdrawal = transactions.execute(status -> {
+            UserEntity operator = userRepository.findByUsernameNormalized("operator").orElseThrow();
+            Instant now = Instant.now();
+            WorkspaceEntity workspace = workspace(workspaceId, operator, now);
+            addMembership(workspace, operator, now);
+            WithdrawalRequestEntity entity = withdrawal(workspace, now);
+            entity.setPublicId(publicId);
+            entity.setBybitOrderId(orderId);
+            entity.setBybitCounterpartyVerifiedName("QA Counterparty");
+            return entity;
+        });
+        assertThat(withdrawal).isNotNull();
+        List<BybitChatMessage> messages = List.of(new BybitChatMessage(
+                "incoming", "Incoming QA message", "counterparty", 1, Instant.now(),
+                "str", orderId, "qa-message-uuid", "Counterparty", "user"
+        ));
+        CountDownLatch viewersReady = new CountDownLatch(1);
+        when(bybitGateway.fetchChatMessages(orderId)).thenAnswer(invocation -> {
+            if (!viewersReady.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Test viewers did not open the stream");
+            }
+            return messages;
+        });
+
+        MockHttpSession firstSession = new MockHttpSession();
+        MockHttpSession secondSession = new MockHttpSession();
+        MockHttpSession otherSession = new MockHttpSession();
+        String updatesUrl = "/api/workspaces/{workspacePublicId}/withdrawals/updates";
+        String detailsUrl = "/api/workspaces/{workspacePublicId}/withdrawals/{withdrawalPublicId}";
+        try {
+            MvcResult first = mockMvc.perform(get(updatesUrl, workspaceId).param("chat", publicId)
+                            .accept(MediaType.TEXT_EVENT_STREAM).with(user("operator")).session(firstSession))
+                    .andExpect(request().asyncStarted()).andReturn();
+            MvcResult second = mockMvc.perform(get(updatesUrl, workspaceId).param("chat", publicId)
+                            .accept(MediaType.TEXT_EVENT_STREAM).with(user("operator")).session(secondSession))
+                    .andExpect(request().asyncStarted()).andReturn();
+            MvcResult other = mockMvc.perform(get(updatesUrl, workspaceId).param("chat", "DAA0008")
+                            .accept(MediaType.TEXT_EVENT_STREAM).with(user("operator")).session(otherSession))
+                    .andExpect(request().asyncStarted()).andReturn();
+            assertThat(first.getResponse().getContentAsString()).contains("event:ready", "data:chat");
+            viewersReady.countDown();
+
+            // No request for withdrawal details is needed to discover the incoming message.
+            await().atMost(Duration.ofSeconds(8)).untilAsserted(() -> {
+                assertThat(first.getResponse().getContentAsString()).contains("event:chat", "data:" + publicId)
+                        .doesNotContain("event:withdrawal", "Incoming QA message");
+                assertThat(second.getResponse().getContentAsString()).contains("event:chat", "data:" + publicId);
+            });
+            mockMvc.perform(get(detailsUrl, workspaceId, publicId).with(user("operator")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.chatUnavailable").value(false))
+                    .andExpect(jsonPath("$.chatMessages[0].content.text").value("Incoming QA message"));
+
+            String beforeFirst = first.getResponse().getContentAsString();
+            String beforeSecond = second.getResponse().getContentAsString();
+            mockMvc.perform(post(detailsUrl + "/chat/messages", workspaceId, publicId).with(user("operator"))
+                            .with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"Outgoing QA message\"}"))
+                    .andExpect(status().isNoContent());
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(first.getResponse().getContentAsString().substring(beforeFirst.length()))
+                        .contains("event:chat", "data:" + publicId);
+                assertThat(second.getResponse().getContentAsString().substring(beforeSecond.length()))
+                        .contains("event:chat", "data:" + publicId);
+                assertThat(other.getResponse().getContentAsString()).doesNotContain("event:chat");
+            });
+            mockMvc.perform(get(detailsUrl, workspaceId, publicId).with(user("operator")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.chatMessages[1].content.text").value("Outgoing QA message"));
+        } finally {
+            viewersReady.countDown();
+            firstSession.invalidate();
+            secondSession.invalidate();
+            otherSession.invalidate();
+            transactions.executeWithoutResult(status -> {
+                Long id = withdrawal.getWorkspace().getId();
+                jdbcTemplate.update("delete from audit_events where workspace_id = ?", id);
+                jdbcTemplate.update("delete from withdrawal_requests where id = ?", withdrawal.getId());
+                jdbcTemplate.update("delete from workspace_members where workspace_id = ?", id);
+                jdbcTemplate.update("delete from workspaces where id = ?", id);
             });
         }
     }

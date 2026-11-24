@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -173,6 +174,7 @@ class WithdrawalServiceTests {
         private final BybitOrderWatcher bybitOrderWatcher = mock(BybitOrderWatcher.class);
         private final CurrentUserService currentUserService = mock(CurrentUserService.class);
         private final WorkspaceAccessService workspaceAccessService = mock(WorkspaceAccessService.class);
+        private final BybitChatService chatService = mock(BybitChatService.class);
         private final WorkspaceEntity workspace = new WorkspaceEntity();
         private final UserEntity user = new UserEntity();
         private final WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
@@ -195,13 +197,15 @@ class WithdrawalServiceTests {
                     .thenReturn(Optional.of(withdrawal));
             when(withdrawalRepository.save(withdrawal)).thenReturn(withdrawal);
             when(mapper.toResponse(withdrawal)).thenReturn(response);
+            when(chatService.getHistory(workspace, withdrawal))
+                    .thenReturn(new BybitChatService.ChatHistory(List.of(), false));
 
             BusinessProperties businessProperties = new BusinessProperties();
             businessProperties.setWithdrawalCancellationGracePeriod(Duration.ZERO);
             service = new WithdrawalService(
                     withdrawalRepository,
                     mock(WithdrawalEventRepository.class),
-                    mock(BybitChatService.class),
+                    chatService,
                     mock(EmailReceiptCheckRepository.class),
                     mock(BybitOrderBindingRepository.class),
                     mock(WithdrawalInputNormalizer.class),

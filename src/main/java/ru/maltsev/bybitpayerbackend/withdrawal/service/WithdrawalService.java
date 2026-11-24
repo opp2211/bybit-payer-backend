@@ -311,13 +311,15 @@ public class WithdrawalService {
         UserEntity currentUser = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
         WithdrawalRequestEntity withdrawal = getRequiredEntity(workspace, publicId);
+        BybitChatService.ChatHistory chat = chatService.getHistory(workspace, withdrawal);
         return new WithdrawalDetailsResponse(
                 mapper.toResponse(withdrawal),
                 counterpartyVerifiedName(workspace, withdrawal),
                 eventRepository.findByWithdrawalRequest_IdOrderByCreatedAtAscIdAsc(withdrawal.getId()).stream()
                         .map(mapper::toEventResponse)
                         .toList(),
-                chatService.getMessages(workspace, withdrawal),
+                chat.messages(),
+                chat.unavailable(),
                 receiptCheckRepository.findByWithdrawalRequest_IdOrderByCreatedAtDescIdDesc(withdrawal.getId()).stream()
                         .map(mapper::toReceiptCheckResponse)
                         .toList()

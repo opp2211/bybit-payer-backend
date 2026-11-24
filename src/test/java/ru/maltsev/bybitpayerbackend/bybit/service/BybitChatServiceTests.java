@@ -164,8 +164,10 @@ class BybitChatServiceTests {
 
         BybitChatService service = service(withdrawalRepository, eventService, bybitGateway);
 
-        assertThat(service.getMessages(withdrawal)).isEmpty();
-        assertThat(service.getMessages(withdrawal)).isEmpty();
+        BybitChatService.ChatHistory history = service.getHistory(null, withdrawal);
+        assertThat(history.messages()).isEmpty();
+        assertThat(history.unavailable()).isTrue();
+        assertThat(service.getHistory(null, withdrawal)).isEqualTo(history);
 
         verify(bybitGateway, times(1)).fetchChatMessages("order-7");
     }

@@ -708,10 +708,17 @@
           "schema" : {
             "type" : "string"
           }
+        }, {
+          "name" : "chat",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
         } ],
         "responses" : {
           "200" : {
-            "description" : "SSE events: ready, withdrawal, and heartbeat",
+            "description" : "SSE events: ready, withdrawal, heartbeat, and chat for the requested withdrawal",
             "content" : {
               "text/event-stream" : {
                 "schema" : {
@@ -1808,6 +1815,9 @@
             "items" : {
               "$ref" : "#/components/schemas/ChatMessageLogResponse"
             }
+          },
+          "chatUnavailable" : {
+            "type" : "boolean"
           },
           "receiptChecks" : {
             "type" : "array",

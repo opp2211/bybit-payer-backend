@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -83,16 +84,20 @@ public class WithdrawalController {
 
     @GetMapping(value = "/updates", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Stream committed withdrawal updates")
-    @ApiResponse(responseCode = "200", description = "SSE events: ready, withdrawal, and heartbeat",
+    @ApiResponse(responseCode = "200",
+            description = "SSE events: ready, withdrawal, heartbeat, and chat for the requested withdrawal",
             content = @Content(mediaType = "text/event-stream",
                     schema = @Schema(implementation = WithdrawalUpdateResponse.class)))
-    public ResponseEntity<SseEmitter> streamUpdates(@PathVariable String workspacePublicId, HttpSession session)
-            throws IOException {
+    public ResponseEntity<SseEmitter> streamUpdates(
+            @PathVariable String workspacePublicId,
+            @RequestParam(name = "chat", required = false) String chatPublicId,
+            HttpSession session
+    ) throws IOException {
         try {
             return ResponseEntity.ok()
                     .header(HttpHeaders.CACHE_CONTROL, "no-store, no-transform")
                     .header("X-Accel-Buffering", "no")
-                    .body(updatesStream.subscribe(workspacePublicId, session));
+                    .body(updatesStream.subscribe(workspacePublicId, chatPublicId, session));
         } catch (BusinessException exception) {
             return ResponseEntity.status(exception.getStatus()).build();
         } catch (EntityNotFoundException exception) {

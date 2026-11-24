@@ -185,7 +185,16 @@ withdrawals.
 and `heartbeat` as server-sent events. Withdrawal events are published after the database
 commit. The stream checks the authenticated session and workspace membership. The frontend
 refreshes the affected withdrawal queries and reads recent sound events on demand, including
-after reconnecting. Bybit order polling and chat reads retain their own schedules.
+after reconnecting.
+
+On a withdrawal detail page, the same stream accepts `?chat={withdrawalPublicId}`.
+A supported chat subscription receives `ready` with data `chat`, then `chat` events whose
+data is the withdrawal public ID. The frontend reloads the details snapshot for that ID.
+Chat events carry no message content and do not trigger sound. The backend refreshes each
+subscribed order once across all viewers, using the existing cache TTL and failure backoff.
+Successful sends also invalidate the open chat. The details response keeps cached messages
+and sets `chatUnavailable` when Bybit chat history could not be refreshed. The frontend
+reloads the snapshot after reconnecting and polls details while chat events are unavailable.
 
 ## Notes
 

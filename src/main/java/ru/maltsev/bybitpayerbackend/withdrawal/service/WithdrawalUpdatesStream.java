@@ -8,13 +8,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -32,6 +34,7 @@ import ru.maltsev.bybitpayerbackend.workspace.service.WorkspaceAccessService;
 public class WithdrawalUpdatesStream {
 
     private static final long STREAM_TIMEOUT_MILLIS = 120_000;
+    private static final Pattern WITHDRAWAL_ID = Pattern.compile("[0-9A-F]{7}");
 
     private final CurrentUserService currentUserService;
     private final WorkspaceAccessService workspaceAccessService;
@@ -43,15 +46,18 @@ public class WithdrawalUpdatesStream {
             Thread.ofPlatform().daemon(true).name("withdrawal-sse-", 0).factory()
     );
 
-    public SseEmitter subscribe(String workspacePublicId, HttpSession session) throws IOException {
+    public SseEmitter subscribe(String workspacePublicId, String chatPublicId, HttpSession session) throws IOException {
         UserEntity user = currentUserService.currentUser();
         WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, user);
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MILLIS);
-        Subscription subscription = new Subscription(workspace.getId(), user.getId(), session, emitter);
+        ChatUpdate chat = chatPublicId != null && WITHDRAWAL_ID.matcher(chatPublicId).matches()
+                ? new ChatUpdate(workspace.getId(), chatPublicId)
+                : null;
+        Subscription subscription = new Subscription(workspace.getId(), user.getId(), session, emitter, chat);
         emitter.onCompletion(() -> subscriptions.remove(subscription));
         emitter.onTimeout(() -> disconnect(subscription));
         emitter.onError(error -> subscriptions.remove(subscription));
-        emitter.send(SseEmitter.event().name("ready").reconnectTime(2_000).data("ready"));
+        emitter.send(SseEmitter.event().name("ready").reconnectTime(2_000).data(chat == null ? "ready" : "chat"));
         subscriptions.add(subscription);
         return emitter;
     }
@@ -63,6 +69,26 @@ public class WithdrawalUpdatesStream {
                 send(subscription, SseEmitter.event().name("withdrawal").data(event.update(), MediaType.APPLICATION_JSON));
             }
         }
+    }
+
+    @TransactionalEventListener(fallbackExecution = true)
+    public void onChatUpdate(ChatUpdate update) {
+        for (Subscription subscription : subscriptions) {
+            if (update.equals(subscription.chat())) {
+                send(subscription, SseEmitter.event().name("chat").data(update.withdrawalPublicId()));
+            }
+        }
+    }
+
+    public Set<ChatUpdate> subscribedChats() {
+        return subscriptions.stream()
+                .map(Subscription::chat)
+                .filter(chat -> chat != null)
+                .collect(Collectors.toSet());
+    }
+
+    public boolean isChatSubscribed(ChatUpdate chat) {
+        return subscriptions.stream().anyMatch(subscription -> chat.equals(subscription.chat()));
     }
 
     @Scheduled(fixedDelay = 15_000)
@@ -116,6 +142,11 @@ public class WithdrawalUpdatesStream {
     public record CommittedUpdate(Long workspaceId, WithdrawalUpdateResponse update) {
     }
 
-    private record Subscription(Long workspaceId, Long userId, HttpSession session, SseEmitter emitter) {
+    public record ChatUpdate(Long workspaceId, String withdrawalPublicId) {
+    }
+
+    private record Subscription(
+            Long workspaceId, Long userId, HttpSession session, SseEmitter emitter, ChatUpdate chat
+    ) {
     }
 }

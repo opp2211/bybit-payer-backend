@@ -13,6 +13,7 @@ public record WithdrawalDetailsResponse(
         String bybitCounterpartyVerifiedName,
         List<WithdrawalEventResponse> events,
         List<ChatMessageLogResponse> chatMessages,
+        boolean chatUnavailable,
         List<EmailReceiptCheckResponse> receiptChecks
 ) {
 }
