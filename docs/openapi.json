@@ -696,6 +696,35 @@
         }
       }
     },
+    "/api/workspaces/{workspacePublicId}/withdrawals/sound-events" : {
+      "get" : {
+        "tags" : [ "withdrawal-controller" ],
+        "operationId" : "getRecentSoundEvents",
+        "parameters" : [ {
+          "name" : "workspacePublicId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "type" : "array",
+                  "items" : {
+                    "$ref" : "#/components/schemas/WithdrawalSoundEventResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/workspaces/{workspacePublicId}/withdrawals/completed" : {
       "get" : {
         "tags" : [ "withdrawal-controller" ],
@@ -1786,6 +1815,19 @@
           "createdAt" : {
             "type" : "string",
             "format" : "date-time"
+          }
+        }
+      },
+      "WithdrawalSoundEventResponse" : {
+        "type" : "object",
+        "properties" : {
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "eventType" : {
+            "type" : "string",
+            "enum" : [ "WITHDRAWAL_CREATED", "WITHDRAWAL_QUEUED", "WITHDRAWAL_PUBLISHED", "ADVERTISEMENT_UPDATED", "WITHDRAWAL_REMOVED_FROM_AD", "ORDER_FOUND", "ORDER_CANCELLED", "ORDER_COMPLETED_EXTERNALLY", "ORDER_APPEAL_STARTED", "ORDER_OBJECTION_REQUIRED", "WITHDRAWAL_RETURNED_TO_WORK", "REQUISITES_SENT", "CHAT_MESSAGE_SENT", "ORDER_PAID", "MAIL_CHECK_STARTED", "EMAIL_FOUND", "PDF_FOUND", "PDF_PARSED", "VERIFICATION_SUCCEEDED", "VERIFICATION_FAILED", "RELEASE_SUCCEEDED", "RELEASE_FAILED", "MANUAL_RELEASE_SUCCEEDED", "ATTENTION_REQUIRED", "COMPLETION_SEEN", "BYBIT_API_ERROR", "IMAPS_ERROR", "PDF_PARSER_ERROR", "WITHDRAWAL_CANCELLED", "WITHDRAWAL_CANCELLATION_STARTED", "WITHDRAWAL_CANCELLATION_ABORTED", "SYSTEM_RESYNC" ]
           }
         }
       },

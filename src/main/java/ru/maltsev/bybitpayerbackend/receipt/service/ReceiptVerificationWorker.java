@@ -3,6 +3,7 @@ package ru.maltsev.bybitpayerbackend.receipt.service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -326,10 +327,13 @@ public class ReceiptVerificationWorker {
                     check.getId()
             );
         } catch (Exception exception) {
-            withdrawal.setAttentionRequired(true);
-            withdrawal.setLastError(exception.getMessage());
-            withdrawalRepository.save(withdrawal);
-            eventService.add(withdrawal, WithdrawalEventType.RELEASE_FAILED, "Bybit release failed: " + exception.getMessage());
+            String message = Objects.requireNonNullElse(exception.getMessage(), exception.getClass().getSimpleName());
+            if (!withdrawal.isAttentionRequired() || !message.equals(withdrawal.getLastError())) {
+                withdrawal.setAttentionRequired(true);
+                withdrawal.setLastError(message);
+                withdrawalRepository.save(withdrawal);
+                eventService.add(withdrawal, WithdrawalEventType.RELEASE_FAILED, "Bybit release failed: " + message);
+            }
             log.error(
                     "Bybit order release failed: withdrawalId={}, orderId={}, message={}",
                     withdrawal.getId(),

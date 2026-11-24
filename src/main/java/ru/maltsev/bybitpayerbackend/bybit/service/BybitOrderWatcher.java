@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -517,9 +518,7 @@ public class BybitOrderWatcher {
                         .orElse(false) || publicationChanged;
             } catch (Exception exception) {
                 WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
-                withdrawal.setAttentionRequired(true);
-                withdrawal.setLastError(exception.getMessage());
-                withdrawalRepository.save(withdrawal);
+                recordOrderRefreshFailure(withdrawal, exception);
                 log.warn(
                         "Bound Bybit order status refresh failed: orderId={}, withdrawalId={}, message={}",
                         binding.getBybitOrderId(),
@@ -542,13 +541,21 @@ public class BybitOrderWatcher {
                         .map(order -> syncKnownOrder(binding, order))
                         .orElse(false) || publicationChanged;
             } catch (Exception exception) {
-                WithdrawalRequestEntity withdrawal = binding.getWithdrawalRequest();
-                withdrawal.setAttentionRequired(true);
-                withdrawal.setLastError(exception.getMessage());
-                withdrawalRepository.save(withdrawal);
+                recordOrderRefreshFailure(binding.getWithdrawalRequest(), exception);
             }
         }
         return publicationChanged;
+    }
+
+    private void recordOrderRefreshFailure(WithdrawalRequestEntity withdrawal, Exception exception) {
+        String message = Objects.requireNonNullElse(exception.getMessage(), exception.getClass().getSimpleName());
+        if (withdrawal.isAttentionRequired() && message.equals(withdrawal.getLastError())) {
+            return;
+        }
+        withdrawal.setAttentionRequired(true);
+        withdrawal.setLastError(message);
+        withdrawalRepository.save(withdrawal);
+        eventService.add(withdrawal, WithdrawalEventType.BYBIT_API_ERROR, "Bybit order status refresh failed: " + message);
     }
 
     private boolean returnWithdrawalToWork(

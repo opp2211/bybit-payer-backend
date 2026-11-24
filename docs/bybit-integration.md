@@ -175,6 +175,12 @@ Missing, unsupported, and mismatched names require operator review and show an e
 withdrawal details. This includes differences such as a missing letter or an alternative spelling.
 The same check applies when retrying release with a saved receipt.
 
+The withdrawal sound feed reads the latest 100 qualifying events from the last five minutes
+for the selected workspace. It includes bound and cancelled orders, attention flags, appeals
+and objections, and withdrawal errors. The first response establishes a baseline for the
+browser, and chat activity is excluded. The existing completion sound uses unseen completed
+withdrawals.
+
 ## Notes
 
 Managed advertisement rebuilds propagate failures without logging them inside

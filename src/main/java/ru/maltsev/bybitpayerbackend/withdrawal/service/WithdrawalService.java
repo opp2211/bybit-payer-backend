@@ -5,10 +5,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalSoundEventResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalAmountMode;
 import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
@@ -55,6 +58,22 @@ import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepos
 @Service
 @Slf4j
 public class WithdrawalService {
+
+    private static final Duration SOUND_EVENT_WINDOW = Duration.ofMinutes(5);
+    private static final int SOUND_EVENT_LIMIT = 100;
+    private static final Set<WithdrawalEventType> SOUND_EVENTS = Set.of(
+            WithdrawalEventType.ORDER_FOUND,
+            WithdrawalEventType.ATTENTION_REQUIRED,
+            WithdrawalEventType.ORDER_CANCELLED,
+            WithdrawalEventType.ORDER_APPEAL_STARTED,
+            WithdrawalEventType.ORDER_OBJECTION_REQUIRED,
+            WithdrawalEventType.VERIFICATION_FAILED,
+            WithdrawalEventType.RELEASE_FAILED,
+            WithdrawalEventType.BYBIT_API_ERROR,
+            WithdrawalEventType.IMAPS_ERROR,
+            WithdrawalEventType.PDF_PARSER_ERROR,
+            WithdrawalEventType.WITHDRAWAL_CANCELLATION_ABORTED
+    );
 
     private final WithdrawalRequestRepository withdrawalRepository;
     private final WithdrawalEventRepository eventRepository;
@@ -287,6 +306,18 @@ public class WithdrawalService {
                 ).stream()
                 .map(mapper::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<WithdrawalSoundEventResponse> getRecentSoundEvents(String workspacePublicId) {
+        UserEntity currentUser = currentUserService.currentUser();
+        WorkspaceEntity workspace = workspaceAccessService.getAccessibleWorkspace(workspacePublicId, currentUser);
+        return eventRepository.findRecentSoundEvents(
+                workspace,
+                SOUND_EVENTS,
+                Instant.now(clock).minus(SOUND_EVENT_WINDOW),
+                PageRequest.of(0, SOUND_EVENT_LIMIT)
+        );
     }
 
     @Transactional(readOnly = true)

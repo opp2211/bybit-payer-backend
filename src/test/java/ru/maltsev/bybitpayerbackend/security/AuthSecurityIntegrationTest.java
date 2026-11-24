@@ -2,12 +2,16 @@ package ru.maltsev.bybitpayerbackend.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.cookie;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
+import java.time.Instant;
 
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,12 +25,28 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import ru.maltsev.bybitpayerbackend.bybit.gateway.TestBybitGatewayConfiguration;
 import ru.maltsev.bybitpayerbackend.common.logging.RequestLoggingFilter;
 import ru.maltsev.bybitpayerbackend.security.config.SecurityConfig;
 import ru.maltsev.bybitpayerbackend.security.dto.CsrfTokenResponse;
+import ru.maltsev.bybitpayerbackend.user.entity.UserEntity;
+import ru.maltsev.bybitpayerbackend.user.repository.UserRepository;
+import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalEventEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.entity.WithdrawalRequestEntity;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.PayerBankType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalEventType;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalMethod;
+import ru.maltsev.bybitpayerbackend.withdrawal.model.WithdrawalStatus;
+import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalEventRepository;
+import ru.maltsev.bybitpayerbackend.withdrawal.repository.WithdrawalRequestRepository;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceEntity;
+import ru.maltsev.bybitpayerbackend.workspace.entity.WorkspaceMemberEntity;
+import ru.maltsev.bybitpayerbackend.workspace.model.WorkspaceMemberRole;
+import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceMemberRepository;
+import ru.maltsev.bybitpayerbackend.workspace.repository.WorkspaceRepository;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -41,6 +61,21 @@ class AuthSecurityIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private WorkspaceRepository workspaceRepository;
+
+    @Autowired
+    private WorkspaceMemberRepository workspaceMemberRepository;
+
+    @Autowired
+    private WithdrawalRequestRepository withdrawalRepository;
+
+    @Autowired
+    private WithdrawalEventRepository withdrawalEventRepository;
 
     @BeforeEach
     void createPersistentLoginTable() {
@@ -124,6 +159,72 @@ class AuthSecurityIntegrationTest {
 
         mockMvc.perform(get("/api/auth/me").cookie(rememberMeCookie))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @Transactional
+    void servesOnlyRecentSoundEventsForTheRequestedWorkspace() throws Exception {
+        UserEntity operator = userRepository.findByUsernameNormalized("operator").orElseThrow();
+        Instant now = Instant.now();
+        WorkspaceEntity workspace = workspace("DAA0001", operator, now);
+        WorkspaceEntity otherWorkspace = workspace("DAA0002", operator, now);
+        WithdrawalRequestEntity withdrawal = withdrawal(workspace, now);
+        WithdrawalRequestEntity otherWithdrawal = withdrawal(otherWorkspace, now);
+
+        WorkspaceMemberEntity membership = new WorkspaceMemberEntity();
+        membership.setWorkspace(workspace);
+        membership.setUser(operator);
+        membership.setRole(WorkspaceMemberRole.OWNER);
+        membership.setCreatedAt(now);
+        workspaceMemberRepository.save(membership);
+
+        addEvent(withdrawal, WithdrawalEventType.ORDER_FOUND, now.minusSeconds(10));
+        addEvent(withdrawal, WithdrawalEventType.ORDER_CANCELLED, now.minusSeconds(5));
+        addEvent(withdrawal, WithdrawalEventType.ATTENTION_REQUIRED, now.minusSeconds(600));
+        addEvent(withdrawal, WithdrawalEventType.CHAT_MESSAGE_SENT, now);
+        addEvent(otherWithdrawal, WithdrawalEventType.ORDER_APPEAL_STARTED, now);
+
+        mockMvc.perform(get("/api/workspaces/{workspacePublicId}/withdrawals/sound-events", workspace.getPublicId())
+                        .with(user("operator")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].eventType").value("ORDER_CANCELLED"))
+                .andExpect(jsonPath("$[1].eventType").value("ORDER_FOUND"));
+
+        mockMvc.perform(get("/api/workspaces/{workspacePublicId}/withdrawals/sound-events", otherWorkspace.getPublicId())
+                        .with(user("operator")))
+                .andExpect(status().isForbidden());
+    }
+
+    private WorkspaceEntity workspace(String id, UserEntity owner, Instant now) {
+        WorkspaceEntity workspace = new WorkspaceEntity();
+        workspace.setPublicId(id);
+        workspace.setName(id);
+        workspace.setOwner(owner);
+        workspace.setCreatedAt(now);
+        workspace.setUpdatedAt(now);
+        return workspaceRepository.save(workspace);
+    }
+
+    private WithdrawalRequestEntity withdrawal(WorkspaceEntity workspace, Instant now) {
+        WithdrawalRequestEntity withdrawal = new WithdrawalRequestEntity();
+        withdrawal.setWorkspace(workspace);
+        withdrawal.setAmountMinRub(BigDecimal.TEN);
+        withdrawal.setAmountMaxRub(BigDecimal.TEN);
+        withdrawal.setWithdrawalMethod(WithdrawalMethod.SBP);
+        withdrawal.setPayerBankType(PayerBankType.TBANK_AUTO);
+        withdrawal.setStatus(WithdrawalStatus.NEW);
+        withdrawal.setCreatedAt(now);
+        return withdrawalRepository.save(withdrawal);
+    }
+
+    private void addEvent(WithdrawalRequestEntity withdrawal, WithdrawalEventType type, Instant createdAt) {
+        WithdrawalEventEntity event = new WithdrawalEventEntity();
+        event.setWithdrawalRequest(withdrawal);
+        event.setEventType(type);
+        event.setMessage(type.name());
+        event.setCreatedAt(createdAt);
+        withdrawalEventRepository.save(event);
     }
 
     private ResultActions login(String password) throws Exception {

@@ -25,6 +25,7 @@ import ru.maltsev.bybitpayerbackend.withdrawal.dto.CreateWithdrawalRequest;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalAdvertisementPreviewResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalDetailsResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalResponse;
+import ru.maltsev.bybitpayerbackend.withdrawal.dto.WithdrawalSoundEventResponse;
 import ru.maltsev.bybitpayerbackend.withdrawal.service.WithdrawalService;
 import ru.maltsev.bybitpayerbackend.receipt.entity.EmailReceiptCheckEntity;
 
@@ -61,6 +62,11 @@ public class WithdrawalController {
     @GetMapping("/completed")
     public List<WithdrawalResponse> getCompleted(@PathVariable String workspacePublicId) {
         return withdrawalService.getCompleted(workspacePublicId);
+    }
+
+    @GetMapping("/sound-events")
+    public List<WithdrawalSoundEventResponse> getRecentSoundEvents(@PathVariable String workspacePublicId) {
+        return withdrawalService.getRecentSoundEvents(workspacePublicId);
     }
 
     @GetMapping("/{withdrawalPublicId}")
